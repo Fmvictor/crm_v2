@@ -10,6 +10,7 @@ import {
   MessageSquare,
   LogOut,
   GraduationCap,
+  CreditCard,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ const nav = [
   { href: '/courses', label: 'Cursos', icon: BookOpen },
   { href: '/enrollments', label: 'Inscripciones', icon: ClipboardList },
   { href: '/interactions', label: 'Interacciones', icon: MessageSquare },
+  { href: '/pagos', label: 'Pagos', icon: CreditCard },
 ];
 
 export function Sidebar() {

@@ -62,6 +62,9 @@ export interface Enrollment {
   enrolledAt: string | null;
   completedAt: string | null;
   notes: string | null;
+  stripePaymentId: string | null;
+  currency: string | null;
+  wooOrderNumber: string | null;
   createdAt: string;
 }
 
