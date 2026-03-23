@@ -9,11 +9,6 @@ services:
     restart: unless-stopped
     ports:
       - '3001:3001'
-    environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      PORT: 3001
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: redis://redis:6379
     env_file:
       - .env
     depends_on:
@@ -21,9 +16,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./apps/backend:/app
-      - /app/node_modules
     networks:
       - emeb-network
 
@@ -35,17 +27,10 @@ services:
     restart: unless-stopped
     ports:
       - '3000:3000'
-    environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     env_file:
       - .env
     depends_on:
       - backend
-    volumes:
-      - ./apps/frontend:/app
-      - /app/node_modules
-      - /app/.next
     networks:
       - emeb-network
 
@@ -75,7 +60,7 @@ services:
     restart: unless-stopped
     ports:
       - '6379:6379'
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:

@@ -34,10 +34,10 @@ export class Contact {
   @Column({ length: 100 })
   name: string;
 
-  @Column({ unique: true, length: 150, nullable: true })
+  @Column({ type: 'varchar', unique: true, length: 150, nullable: true })
   email: string | null;
 
-  @Column({ length: 30, nullable: true })
+  @Column({ type: 'varchar', length: 30, nullable: true })
   phone: string | null;
 
   @Column({ type: 'enum', enum: ContactStatus, default: ContactStatus.NEW })
@@ -46,7 +46,7 @@ export class Contact {
   @Column({ type: 'enum', enum: ContactSource, default: ContactSource.OTHER })
   source: ContactSource;
 
-  @Column({ length: 200, nullable: true })
+  @Column({ type: 'varchar', length: 200, nullable: true })
   courseInterest: string | null;
 
   @Column({ type: 'text', nullable: true })
@@ -56,7 +56,7 @@ export class Contact {
   @JoinColumn({ name: 'assignedToId' })
   assignedTo: User | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   assignedToId: string | null;
 
   @CreateDateColumn()

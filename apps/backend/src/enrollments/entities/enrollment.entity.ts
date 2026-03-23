@@ -67,10 +67,10 @@ export class Enrollment {
   @Column({ type: 'numeric', precision: 10, scale: 2, nullable: true })
   amountTotal: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   enrolledAt: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt: Date | null;
 
   @Column({ type: 'text', nullable: true })
@@ -80,7 +80,7 @@ export class Enrollment {
   @JoinColumn({ name: 'createdById' })
   createdBy: User | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   createdById: string | null;
 
   @CreateDateColumn()

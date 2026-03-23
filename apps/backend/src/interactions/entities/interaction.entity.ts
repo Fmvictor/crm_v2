@@ -42,10 +42,10 @@ export class Interaction {
   @Column({ type: 'text' })
   notes: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   scheduledAt: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   durationMinutes: number | null;
 
   @ManyToOne(() => Contact, { onDelete: 'CASCADE' })
@@ -59,7 +59,7 @@ export class Interaction {
   @JoinColumn({ name: 'createdById' })
   createdBy: User | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   createdById: string | null;
 
   @CreateDateColumn()

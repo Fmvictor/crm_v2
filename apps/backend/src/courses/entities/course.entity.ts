@@ -31,13 +31,13 @@ export class Course {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
-  @Column({ length: 100, nullable: true })
+  @Column({ type: 'varchar', length: 100, nullable: true })
   category: string | null;
 
   @Column({ type: 'numeric', precision: 10, scale: 2, nullable: true })
   price: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   durationHours: number | null;
 
   @Column({
@@ -50,13 +50,13 @@ export class Course {
   @Column({ type: 'enum', enum: CourseStatus, default: CourseStatus.DRAFT })
   status: CourseStatus;
 
-  @Column({ nullable: true })
+  @Column({ type: 'date', nullable: true })
   startDate: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'date', nullable: true })
   endDate: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   maxStudents: number | null;
 
   @CreateDateColumn()
