@@ -9,6 +9,7 @@ import { ContactsModule } from './contacts/contacts.module';
 import { CoursesModule } from './courses/courses.module';
 import { InteractionsModule } from './interactions/interactions.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
+import { StripeModule } from './stripe/stripe.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { EnrollmentsModule } from './enrollments/enrollments.module';
     CoursesModule,
     InteractionsModule,
     EnrollmentsModule,
+    StripeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

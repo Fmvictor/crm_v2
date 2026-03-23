@@ -73,6 +73,15 @@ export class Enrollment {
   @Column({ type: 'timestamptz', nullable: true })
   completedAt: Date | null;
 
+  @Column({ type: 'varchar', nullable: true, unique: true })
+  stripePaymentId: string | null;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  currency: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  wooOrderNumber: string | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
