@@ -9,6 +9,8 @@ import {
   EnrollmentStatus,
   PaymentStatus,
 } from '../enrollments/entities/enrollment.entity';
+import { AutomationsService } from '../automations/automations.service';
+import { AutomationTrigger } from '../automations/entities/automation.entity';
 
 @Injectable()
 export class StripeService {
@@ -22,6 +24,7 @@ export class StripeService {
     private readonly coursesRepo: Repository<Course>,
     @InjectRepository(Enrollment)
     private readonly enrollmentsRepo: Repository<Enrollment>,
+    private readonly automationsService: AutomationsService,
   ) {
     this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '');
   }
@@ -143,5 +146,11 @@ export class StripeService {
       await this.enrollmentsRepo.save(enrollment);
       this.logger.log(`Inscripción creada para ${contact.email} en ${course.name}`);
     }
+
+    // Disparar automatizaciones
+    await this.automationsService.executeForTrigger(
+      AutomationTrigger.PAYMENT_CAPTURED,
+      { contact, course, amountPaid, currency: paymentIntent.currency },
+    );
   }
 }

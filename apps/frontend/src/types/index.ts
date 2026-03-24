@@ -68,6 +68,21 @@ export interface Enrollment {
   createdAt: string;
 }
 
+export type AutomationTrigger = 'payment_captured';
+export type AutomationAction = 'whatsapp_template';
+
+export interface Automation {
+  id: string;
+  name: string;
+  description: string | null;
+  trigger: AutomationTrigger;
+  action: AutomationAction;
+  templateName: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PaginatedResult<T> {
   data: T[];
   total: number;

@@ -10,6 +10,7 @@ import { CoursesModule } from './courses/courses.module';
 import { InteractionsModule } from './interactions/interactions.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { StripeModule } from './stripe/stripe.module';
+import { AutomationsModule } from './automations/automations.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { StripeModule } from './stripe/stripe.module';
     InteractionsModule,
     EnrollmentsModule,
     StripeModule,
+    AutomationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

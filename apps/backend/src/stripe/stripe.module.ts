@@ -5,9 +5,10 @@ import { StripeService } from './stripe.service';
 import { Contact } from '../contacts/entities/contact.entity';
 import { Course } from '../courses/entities/course.entity';
 import { Enrollment } from '../enrollments/entities/enrollment.entity';
+import { AutomationsModule } from '../automations/automations.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Contact, Course, Enrollment])],
+  imports: [TypeOrmModule.forFeature([Contact, Course, Enrollment]), AutomationsModule],
   controllers: [StripeController],
   providers: [StripeService],
 })

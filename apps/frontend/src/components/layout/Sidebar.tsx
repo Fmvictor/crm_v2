@@ -11,6 +11,7 @@ import {
   LogOut,
   GraduationCap,
   CreditCard,
+  Zap,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,7 @@ const nav = [
   { href: '/enrollments', label: 'Inscripciones', icon: ClipboardList },
   { href: '/interactions', label: 'Interacciones', icon: MessageSquare },
   { href: '/pagos', label: 'Pagos', icon: CreditCard },
+  { href: '/automatizaciones', label: 'Automatizaciones', icon: Zap },
 ];
 
 export function Sidebar() {
