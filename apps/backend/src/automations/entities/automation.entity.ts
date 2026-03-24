@@ -31,7 +31,7 @@ export class Automation {
   @Column({ type: 'varchar', length: 50 })
   action: AutomationAction;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ name: 'template_name', type: 'varchar', length: 100, nullable: true })
   templateName: string | null;
 
   @Column({ type: 'boolean', default: true })
