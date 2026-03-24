@@ -38,6 +38,13 @@ export class AutomationsService {
     return this.automationsRepo.save(automation);
   }
 
+  async updateTemplate(id: string, templateName: string): Promise<Automation> {
+    const automation = await this.automationsRepo.findOne({ where: { id } });
+    if (!automation) throw new NotFoundException(`Automatización ${id} no encontrada`);
+    automation.templateName = templateName;
+    return this.automationsRepo.save(automation);
+  }
+
   async executeForTrigger(
     trigger: AutomationTrigger,
     ctx: AutomationContext,

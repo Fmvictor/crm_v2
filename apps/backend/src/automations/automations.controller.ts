@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Body, UseGuards } from '@nestjs/common';
 import { AutomationsService } from './automations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -15,5 +15,13 @@ export class AutomationsController {
   @Patch(':id/toggle')
   toggle(@Param('id') id: string) {
     return this.automationsService.toggle(id);
+  }
+
+  @Patch(':id/template')
+  updateTemplate(
+    @Param('id') id: string,
+    @Body('templateName') templateName: string,
+  ) {
+    return this.automationsService.updateTemplate(id, templateName);
   }
 }
