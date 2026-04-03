@@ -99,7 +99,6 @@ export default function ContactsPage() {
                 <th className="text-left px-6 py-3 font-medium text-gray-500">Contacto</th>
                 <th className="text-left px-6 py-3 font-medium text-gray-500">Estado</th>
                 <th className="text-left px-6 py-3 font-medium text-gray-500">Origen</th>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Interés</th>
                 <th className="px-6 py-3" />
               </tr>
             </thead>
@@ -131,9 +130,6 @@ export default function ContactsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-gray-500">{sourceLabels[contact.source]}</td>
-                  <td className="px-6 py-4 text-gray-500 max-w-[180px] truncate">
-                    {contact.courseInterest ?? '—'}
-                  </td>
                   <td className="px-6 py-4">
                     <button
                       onClick={(e) => openEdit(contact, e)}
