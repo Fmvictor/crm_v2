@@ -152,7 +152,19 @@ export class WhatsAppService {
       }
 
       try {
-        const contact = await this.contactsService.findOneByPhone(targetPhone);
+        let contact = await this.contactsService.findOneByPhone(targetPhone);
+        
+        if (!contact && direction === InteractionDirection.INBOUND) {
+          this.logger.log(`Nuevo número de WhatsApp detectado (${targetPhone}), creando contacto automáticamente...`);
+          contact = await this.contactsService.create({
+            name: `Nuevo Contacto (WA ${targetPhone.slice(-4)})`,
+            phone: targetPhone,
+            source: 'whatsapp' as any,
+            status: 'new' as any,
+          });
+          this.logger.log(`Contacto creado con ID: ${contact.id}`);
+        }
+
         if (contact) {
           await this.interactionsService.createSystemInteraction({
             contactId: contact.id,
@@ -162,7 +174,7 @@ export class WhatsAppService {
           });
           this.logger.log(`Interacción guardada para el contacto: ${contact.name}`);
         } else {
-          this.logger.warn(`Mensaje de WhatsApp recibido de ${targetPhone} pero el contacto no existe en la base de datos.`);
+          this.logger.warn(`Mensaje de WhatsApp recibido de ${targetPhone} pero se omitió el guardado (outbound sin contacto previo).`);
         }
       } catch (err) {
         this.logger.error(`Error procesando webhook de WhatsApp: ${err.message}`);
