@@ -73,57 +73,78 @@ export default function InteractionsPage() {
           <div className="p-12 text-center text-sm text-gray-400">No se encontraron interacciones</div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {data?.data.map((interaction) => {
-              const Icon = typeIcons[interaction.type] || FileText;
-              return (
-                <div key={interaction.id} className="p-5 hover:bg-gray-50 transition-colors">
-                  <div className="flex gap-4">
-                    <div className={cn(
-                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-sm",
-                      interaction.type === 'whatsapp' 
-                        ? "bg-green-50 border-green-100 text-green-600" 
-                        : "bg-gray-50 border-gray-100 text-gray-500"
-                    )}>
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-gray-900">
-                          {typeLabels[interaction.type]} 
-                          {interaction.direction && (
-                            <span className="font-normal text-gray-400 ml-1">
-                              ({interaction.direction === 'inbound' ? 'entrante' : 'saliente'})
+              {data?.data.map((interaction) => {
+                const Icon = typeIcons[interaction.type] || FileText;
+                const isWA = interaction.type === 'whatsapp';
+                const directionText = interaction.direction === 'inbound' ? 'entrante' : 'saliente';
+
+                return (
+                  <div key={interaction.id} className="p-5 hover:bg-gray-50/50 transition-colors">
+                    <div className="flex gap-4">
+                      <div className={cn(
+                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-sm",
+                        isWA 
+                          ? "bg-green-50 border-green-100 text-green-600" 
+                          : "bg-gray-50 border-gray-100 text-gray-500"
+                      )}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-bold text-gray-900 uppercase tracking-tight">
+                              {typeLabels[interaction.type]}
+                            </p>
+                            {interaction.direction && (
+                              <span className={cn(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded uppercase",
+                                interaction.direction === 'inbound' 
+                                  ? "bg-blue-50 text-blue-600" 
+                                  : "bg-orange-50 text-orange-600"
+                              )}>
+                                {directionText}
+                              </span>
+                            )}
+                          </div>
+                          <time className="text-xs text-gray-400 whitespace-nowrap">
+                            {formatDate(interaction.createdAt)}
+                          </time>
+                        </div>
+                        
+                        <div className="mt-1 flex items-center gap-2">
+                          <Link 
+                            href={`/contacts/${interaction.contactId}`}
+                            className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                          >
+                            {interaction.contact?.name || 'Contacto desconocido'}
+                            <LinkIcon className="h-3 w-3" />
+                          </Link>
+                          {interaction.createdBy && (
+                            <span className="text-[10px] text-gray-400">
+                              · Registrado por <span className="font-medium text-gray-600">{interaction.createdBy.name}</span>
                             </span>
                           )}
-                        </p>
-                        <time className="text-xs text-gray-400 whitespace-nowrap">
-                          {formatDate(interaction.createdAt)}
-                        </time>
-                      </div>
-                      
-                      <div className="mt-1 flex items-center gap-2">
-                        <Link 
-                          href={`/contacts/${interaction.contactId}`}
-                          className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                        >
-                          {interaction.contact?.name || 'Contacto desconocido'}
-                          <LinkIcon className="h-3 w-3" />
-                        </Link>
-                        {interaction.createdBy && (
-                          <span className="text-xs text-gray-400">
-                            · Registrado por {interaction.createdBy.name}
-                          </span>
-                        )}
-                      </div>
+                        </div>
 
-                      <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">
-                        {interaction.notes}
-                      </p>
+                        <div className="mt-2 text-sm leading-relaxed">
+                          {isWA ? (
+                            <div className={cn(
+                              "inline-block rounded-2xl px-4 py-2 border shadow-sm",
+                              interaction.direction === 'inbound' 
+                                ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm"
+                                : "bg-green-50 border-green-100 text-green-900 rounded-tr-sm"
+                            )}>
+                              <p className="whitespace-pre-wrap">{interaction.notes}</p>
+                            </div>
+                          ) : (
+                            <p className="text-gray-600 whitespace-pre-wrap">{interaction.notes}</p>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         )}
 

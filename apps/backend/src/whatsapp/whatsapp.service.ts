@@ -125,27 +125,38 @@ export class WhatsAppService {
     const changes = entry?.changes?.[0];
     const value = changes?.value;
     const messages = value?.messages;
+    const metadata = value?.metadata;
 
     if (!messages) return;
 
     for (const msg of messages) {
-      const from = msg.from; // phone number
+      const from = msg.from; // can be customer or business (in case of sync)
+      const displayPhone = metadata?.display_phone_number?.replace(/\D/g, '');
+      const msgFromClean = from.replace(/\D/g, '');
+
+      // Determinar dirección: si el 'from' es nuestro número, es saliente sync
+      const isOutbound = displayPhone && (msgFromClean === displayPhone);
+      const targetPhone = isOutbound ? (msg as any).to : from;
+      const direction = isOutbound ? InteractionDirection.OUTBOUND : InteractionDirection.INBOUND;
+      
       const text = msg.text?.body || `[Mensaje tipo: ${msg.type}]`;
       
-      this.logger.log(`Nuevo mensaje de WhatsApp de ${from}: ${text}`);
+      this.logger.log(`Mensaje de WhatsApp (${isOutbound ? 'saliente' : 'entrante'}) de/a ${targetPhone}: ${text}`);
+
+      if (!targetPhone) continue;
 
       try {
-        const contact = await this.contactsService.findOneByPhone(from);
+        const contact = await this.contactsService.findOneByPhone(targetPhone);
         if (contact) {
           await this.interactionsService.createSystemInteraction({
             contactId: contact.id,
             type: InteractionType.WHATSAPP,
-            direction: InteractionDirection.INBOUND,
+            direction,
             notes: text,
           });
         }
       } catch (err) {
-        this.logger.error(`Error registrando interacción de WhatsApp entrante: ${err.message}`);
+        this.logger.error(`Error registrando interacción de WhatsApp ${isOutbound ? 'saliente' : 'entrante'}: ${err.message}`);
       }
     }
   }

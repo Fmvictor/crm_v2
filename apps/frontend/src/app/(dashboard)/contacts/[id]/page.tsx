@@ -63,6 +63,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [interactionOpen, setInteractionOpen] = useState(false);
+  const [tab, setTab] = useState<'history' | 'whatsapp'>('history');
 
   const { data: contact, isLoading } = useQuery({
     queryKey: ['contacts', id],
@@ -184,63 +185,127 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
         {/* Right: interactions timeline */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-900">
-              Historial de interacciones
-            </h2>
+            <div className="flex items-center gap-4 border-b border-gray-50 flex-1">
+              <button 
+                onClick={() => setTab('history')}
+                className={cn(
+                  "pb-2 text-sm font-semibold transition-colors relative",
+                  tab === 'history' ? "text-blue-600" : "text-gray-400 hover:text-gray-600"
+                )}
+              >
+                Historial
+                {tab === 'history' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
+              </button>
+              <button 
+                onClick={() => setTab('whatsapp')}
+                className={cn(
+                  "pb-2 text-sm font-semibold transition-colors relative",
+                  tab === 'whatsapp' ? "text-green-600" : "text-gray-400 hover:text-gray-600"
+                )}
+              >
+                WhatsApp
+                {tab === 'whatsapp' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-600 rounded-full" />}
+              </button>
+            </div>
             <button
               onClick={() => setInteractionOpen(true)}
-              className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors"
+              className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors ml-4"
             >
               <Plus className="h-3.5 w-3.5" /> Registrar
             </button>
           </div>
 
-          {(interactions?.data.length ?? 0) === 0 ? (
-            <p className="text-sm text-gray-400">Sin interacciones registradas</p>
-          ) : (
-            <ol className="relative border-l border-gray-100 space-y-5 pl-5">
-              {interactions?.data.map((interaction) => {
-                const Icon = typeIcons[interaction.type];
-                return (
-                  <li key={interaction.id} className="relative">
-                    <span className={cn(
-                      "absolute -left-[21px] flex h-9 w-9 items-center justify-center rounded-full border shadow-sm",
-                      interaction.type === 'whatsapp' 
-                        ? "bg-green-50 border-green-100 text-green-600" 
-                        : "bg-gray-50 border-gray-100 text-gray-500"
-                    )}>
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <div className="ml-2 group">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-gray-700">
-                          {typeLabels[interaction.type]}
-                        </span>
-                        {interaction.direction && (
-                          <span className="text-xs text-gray-400">
-                            ({interaction.direction === 'inbound' ? 'entrante' : 'saliente'})
-                          </span>
-                        )}
-                        {interaction.durationMinutes && (
-                          <span className="text-xs text-gray-400">· {interaction.durationMinutes} min</span>
-                        )}
-                        <button
-                          onClick={() => deleteInteraction.mutate(interaction.id)}
-                          className="ml-auto opacity-0 group-hover:opacity-100 p-1 rounded text-gray-300 hover:text-red-400 transition-all"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+          {tab === 'history' ? (
+            /* Historical Timeline */
+            (interactions?.data.length ?? 0) === 0 ? (
+              <p className="text-sm text-gray-400 py-4">Sin interacciones registradas</p>
+            ) : (
+              <div className="space-y-6 py-2">
+                {interactions?.data.map((interaction) => {
+                  const isWA = interaction.type === 'whatsapp';
+                  const Icon = typeIcons[interaction.type];
+                  const directionText = interaction.direction === 'inbound' ? 'entrante' : 'saliente';
+
+                  return (
+                    <div key={interaction.id} className="relative pl-12 group">
+                      <div className={cn(
+                        "absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full border shadow-sm z-10",
+                        isWA ? "bg-green-50 border-green-100 text-green-600" : "bg-gray-50 border-gray-100 text-gray-500"
+                      )}>
+                        <Icon className="h-4 w-4" />
                       </div>
-                      <p className="text-sm text-gray-600 mt-0.5">{interaction.notes}</p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {formatDate(interaction.createdAt)}
-                        {interaction.createdBy && ` · ${interaction.createdBy.name}`}
-                      </p>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-gray-900 uppercase tracking-tight">
+                            {typeLabels[interaction.type]}
+                          </span>
+                          {interaction.direction && (
+                            <span className={cn(
+                              "text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase",
+                              interaction.direction === 'inbound' ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600"
+                            )}>
+                              {directionText}
+                            </span>
+                          )}
+                          <time className="text-[11px] text-gray-400">
+                            {formatDate(interaction.createdAt)}
+                          </time>
+                          <button
+                            onClick={() => deleteInteraction.mutate(interaction.id)}
+                            className="invisible group-hover:visible p-1 rounded text-gray-300 hover:text-red-400 transition-all ml-auto"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                        <div className={cn(
+                          "inline-block rounded-2xl px-4 py-2 text-sm max-w-[90%] shadow-sm border",
+                          isWA 
+                            ? (interaction.direction === 'inbound' ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm" : "bg-green-50 border-green-100 text-green-900 rounded-tr-sm")
+                            : "bg-gray-50/50 border-gray-100 text-gray-600 rounded-xl"
+                        )}>
+                          <p className="whitespace-pre-wrap">{interaction.notes}</p>
+                        </div>
+                      </div>
                     </div>
-                  </li>
-                );
-              })}
-            </ol>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+            /* Dedicated WhatsApp View */
+            <div className="space-y-4 py-2">
+              {interactions?.data.filter(i => i.type === 'whatsapp').length === 0 ? (
+                <p className="text-sm text-gray-400 py-4 text-center">No hay mensajes de WhatsApp</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {interactions?.data
+                    .filter(i => i.type === 'whatsapp')
+                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                    .map((msg) => (
+                      <div 
+                        key={msg.id} 
+                        className={cn(
+                          "flex flex-col max-w-[80%]",
+                          msg.direction === 'inbound' ? "self-start" : "self-end items-end"
+                        )}
+                      >
+                        <div className={cn(
+                          "rounded-2xl px-4 py-2 text-sm shadow-sm border",
+                          msg.direction === 'inbound' 
+                            ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm" 
+                            : "bg-green-500 border-green-600/10 text-white rounded-tr-sm shadow-green-100"
+                        )}>
+                          <p className="whitespace-pre-wrap">{msg.notes}</p>
+                        </div>
+                        <time className="text-[10px] text-gray-400 mt-1 px-1">
+                          {formatDate(msg.createdAt)}
+                        </time>
+                      </div>
+                    ))
+                  }
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
