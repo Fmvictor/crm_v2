@@ -12,6 +12,12 @@ export class WhatsAppController {
     return this.whatsAppService.getTemplates();
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('send-template')
+  sendTemplate(@Body() body: any) {
+    return this.whatsAppService.sendTemplate(body);
+  }
+
   @Get('webhook')
   verifyWebhook(
     @Query('hub.mode') mode: string,

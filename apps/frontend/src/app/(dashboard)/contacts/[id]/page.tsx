@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import type { Contact, Enrollment } from '@/types';
 import { ContactForm } from '@/components/contacts/ContactForm';
 import { InteractionForm } from '@/components/interactions/InteractionForm';
+import { WhatsAppTemplateForm } from '@/components/whatsapp/WhatsAppTemplateForm';
 
 type Interaction = {
   id: string;
@@ -161,6 +162,10 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               </div>
             )}
           </div>
+          
+          {contact.phone && (
+            <WhatsAppTemplateForm contactId={contact.id} phone={contact.phone} />
+          )}
 
           {/* Enrollments */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
