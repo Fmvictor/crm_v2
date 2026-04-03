@@ -121,29 +121,35 @@ export class WhatsAppService {
   }
 
   async handleWebhook(body: any): Promise<void> {
+    this.logger.debug('Webhook recibido:', JSON.stringify(body));
+
     const entry = body.entry?.[0];
     const changes = entry?.changes?.[0];
     const value = changes?.value;
     const messages = value?.messages;
     const metadata = value?.metadata;
 
-    if (!messages) return;
+    if (!messages || messages.length === 0) return;
 
     for (const msg of messages) {
-      const from = msg.from; // can be customer or business (in case of sync)
+      const from = msg.from; 
       const displayPhone = metadata?.display_phone_number?.replace(/\D/g, '');
       const msgFromClean = from.replace(/\D/g, '');
 
       // Determinar dirección: si el 'from' es nuestro número, es saliente sync
-      const isOutbound = displayPhone && (msgFromClean === displayPhone);
+      const isOutbound = !!(displayPhone && (msgFromClean === displayPhone));
+      // En mensajes entrantes normales, 'from' es el cliente. En sync saliente, el cliente está en 'to'
       const targetPhone = isOutbound ? (msg as any).to : from;
       const direction = isOutbound ? InteractionDirection.OUTBOUND : InteractionDirection.INBOUND;
       
-      const text = msg.text?.body || `[Mensaje tipo: ${msg.type}]`;
+      const text = msg.text?.body || msg.button?.text || `[Mensaje tipo: ${msg.type}]`;
       
-      this.logger.log(`Mensaje de WhatsApp (${isOutbound ? 'saliente' : 'entrante'}) de/a ${targetPhone}: ${text}`);
+      this.logger.log(`WhatsApp ${direction}: De/A: ${targetPhone} | Texto: ${text}`);
 
-      if (!targetPhone) continue;
+      if (!targetPhone) {
+        this.logger.warn('No se pudo determinar el teléfono del contacto en el mensaje');
+        continue;
+      }
 
       try {
         const contact = await this.contactsService.findOneByPhone(targetPhone);
@@ -154,9 +160,12 @@ export class WhatsAppService {
             direction,
             notes: text,
           });
+          this.logger.log(`Interacción guardada para el contacto: ${contact.name}`);
+        } else {
+          this.logger.warn(`Mensaje de WhatsApp recibido de ${targetPhone} pero el contacto no existe en la base de datos.`);
         }
       } catch (err) {
-        this.logger.error(`Error registrando interacción de WhatsApp ${isOutbound ? 'saliente' : 'entrante'}: ${err.message}`);
+        this.logger.error(`Error procesando webhook de WhatsApp: ${err.message}`);
       }
     }
   }
