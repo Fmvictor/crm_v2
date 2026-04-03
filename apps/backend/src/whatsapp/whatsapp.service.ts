@@ -121,63 +121,71 @@ export class WhatsAppService {
   }
 
   async handleWebhook(body: any): Promise<void> {
-    this.logger.debug('Webhook recibido:', JSON.stringify(body));
+    this.logger.log('Webhook de WhatsApp recibido');
+    
+    const entries = body.entry || [];
+    for (const entry of entries) {
+      const changes = entry.changes || [];
+      for (const change of changes) {
+        const value = change.value;
+        if (!value) continue;
 
-    const entry = body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
-    const messages = value?.messages;
-    const metadata = value?.metadata;
+        const messages = value.messages || [];
+        const metadata = value.metadata;
 
-    if (!messages || messages.length === 0) return;
-
-    for (const msg of messages) {
-      const from = msg.from; 
-      const displayPhone = metadata?.display_phone_number?.replace(/\D/g, '');
-      const msgFromClean = from.replace(/\D/g, '');
-
-      // Determinar dirección: si el 'from' es nuestro número, es saliente sync
-      const isOutbound = !!(displayPhone && (msgFromClean === displayPhone));
-      // En mensajes entrantes normales, 'from' es el cliente. En sync saliente, el cliente está en 'to'
-      const targetPhone = isOutbound ? (msg as any).to : from;
-      const direction = isOutbound ? InteractionDirection.OUTBOUND : InteractionDirection.INBOUND;
-      
-      const text = msg.text?.body || msg.button?.text || `[Mensaje tipo: ${msg.type}]`;
-      
-      this.logger.log(`WhatsApp ${direction}: De/A: ${targetPhone} | Texto: ${text}`);
-
-      if (!targetPhone) {
-        this.logger.warn('No se pudo determinar el teléfono del contacto en el mensaje');
-        continue;
-      }
-
-      try {
-        let contact = await this.contactsService.findOneByPhone(targetPhone);
-        
-        if (!contact && direction === InteractionDirection.INBOUND) {
-          this.logger.log(`Nuevo número de WhatsApp detectado (${targetPhone}), creando contacto automáticamente...`);
-          contact = await this.contactsService.create({
-            name: `Nuevo Contacto (WA ${targetPhone.slice(-4)})`,
-            phone: targetPhone,
-            source: 'whatsapp' as any,
-            status: 'new' as any,
-          });
-          this.logger.log(`Contacto creado con ID: ${contact.id}`);
+        if (messages.length === 0) {
+          this.logger.debug('Webhook recibido sin mensajes (posiblemente actualización de estado)');
+          continue;
         }
 
-        if (contact) {
-          await this.interactionsService.createSystemInteraction({
-            contactId: contact.id,
-            type: InteractionType.WHATSAPP,
-            direction,
-            notes: text,
-          });
-          this.logger.log(`Interacción guardada para el contacto: ${contact.name}`);
-        } else {
-          this.logger.warn(`Mensaje de WhatsApp recibido de ${targetPhone} pero se omitió el guardado (outbound sin contacto previo).`);
+        for (const msg of messages) {
+          try {
+            const from = msg.from; 
+            const displayPhone = metadata?.display_phone_number?.replace(/\D/g, '');
+            const msgFromClean = from.replace(/\D/g, '');
+
+            // Determinar dirección: si el 'from' es nuestro número, es saliente sync (echo)
+            const isOutbound = !!(displayPhone && (msgFromClean === displayPhone));
+            const targetPhone = isOutbound ? (msg as any).to : from;
+            const direction = isOutbound ? InteractionDirection.OUTBOUND : InteractionDirection.INBOUND;
+            
+            const text = msg.text?.body || msg.button?.text || `[Mensaje tipo: ${msg.type}]`;
+            
+            this.logger.log(`Procesando mensaje WA ${direction} - De/A: ${targetPhone}`);
+
+            if (!targetPhone) {
+              this.logger.warn('No se pudo determinar el teléfono del contacto');
+              continue;
+            }
+
+            let contact = await this.contactsService.findOneByPhone(targetPhone);
+            
+            if (!contact && direction === InteractionDirection.INBOUND) {
+              this.logger.log(`Contacto no encontrado para ${targetPhone}, creando automáticamente...`);
+              contact = await this.contactsService.create({
+                name: `Nuevo Contacto (WA ${targetPhone.slice(-4)})`,
+                phone: targetPhone,
+                source: 'whatsapp' as any,
+                status: 'new' as any,
+              });
+            }
+
+            if (contact) {
+              this.logger.log(`Guardando interacción WA para contacto: ${contact.name} (${contact.id})`);
+              await this.interactionsService.createSystemInteraction({
+                contactId: contact.id,
+                type: InteractionType.WHATSAPP,
+                direction,
+                notes: text,
+              });
+              this.logger.log('Interacción WA guardada correctamente');
+            } else {
+              this.logger.warn(`Mensaje WA de ${targetPhone} ignorado (sin contacto y no es entrante)`);
+            }
+          } catch (err) {
+            this.logger.error(`Error procesando mensaje individual de WA: ${err.message}`, err.stack);
+          }
         }
-      } catch (err) {
-        this.logger.error(`Error procesando webhook de WhatsApp: ${err.message}`);
       }
     }
   }

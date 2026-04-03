@@ -20,7 +20,14 @@ export class ContactsService {
     private readonly contactsRepo: Repository<Contact>,
   ) {}
 
+  private normalizePhone(phone: string): string {
+    return phone.replace(/\D/g, '');
+  }
+
   async create(dto: CreateContactDto): Promise<Contact> {
+    if (dto.phone) {
+      dto.phone = this.normalizePhone(dto.phone);
+    }
     const contact = this.contactsRepo.create(dto);
     return this.contactsRepo.save(contact);
   }
@@ -34,23 +41,28 @@ export class ContactsService {
 
     if (search) {
       const baseWhere = { ...where };
-      const results = await this.contactsRepo.findAndCount({
-        where: [
-          { ...baseWhere, name: ILike(`%${search}%`) },
-          { ...baseWhere, email: ILike(`%${search}%`) },
-          { ...baseWhere, phone: ILike(`%${search}%`) },
-        ],
+      
+      // Intentar buscar también por teléfono limpio si la búsqueda parece un número
+      const cleanSearch = search.replace(/\D/g, '');
+      
+      const searchConditions = [
+        { ...baseWhere, name: ILike(`%${search}%`) },
+        { ...baseWhere, email: ILike(`%${search}%`) },
+        { ...baseWhere, phone: ILike(`%${search}%`) },
+      ];
+      
+      if (cleanSearch.length >= 3) {
+        searchConditions.push({ ...baseWhere, phone: ILike(`%${cleanSearch}%`) });
+      }
+
+      const [data, total] = await this.contactsRepo.findAndCount({
+        where: searchConditions,
         relations: ['assignedTo'],
         skip: (page - 1) * limit,
         take: limit,
         order: { createdAt: 'DESC' },
       });
-      return {
-        data: results[0],
-        total: results[1],
-        page,
-        lastPage: Math.ceil(results[1] / limit),
-      };
+      return { data, total, page, lastPage: Math.ceil(total / limit) };
     }
 
     const [data, total] = await this.contactsRepo.findAndCount({
@@ -74,21 +86,23 @@ export class ContactsService {
   }
 
   async findOneByPhone(phone: string): Promise<Contact | null> {
-    // Normalizar teléfono quitando todo lo que no sea número
-    const cleanPhone = phone.replace(/\D/g, '');
+    const cleanPhone = this.normalizePhone(phone);
+    if (!cleanPhone || cleanPhone.length < 7) return null;
     
-    // Buscar por coincidencia exacta o por los últimos digitos (comunmente 9 o 10)
-    // Para ser más robustos usamos el operador LIKE con los últimos 9 dígitos
     const lastDigits = cleanPhone.slice(-9);
     
-    return this.contactsRepo.findOne({
-      where: { phone: ILike(`%${lastDigits}`) },
-      relations: ['assignedTo'],
-    });
+    // Usamos una consulta cruda para ignorar espacios/guiones en la base de datos
+    return this.contactsRepo.createQueryBuilder('contact')
+      .where("REPLACE(REPLACE(REPLACE(REPLACE(contact.phone, ' ', ''), '-', ''), '(', ''), ')', '') ILIKE :search", { search: `%${lastDigits}` })
+      .leftJoinAndSelect('contact.assignedTo', 'assignedTo')
+      .getOne();
   }
 
   async update(id: string, dto: UpdateContactDto): Promise<Contact> {
     const contact = await this.findOne(id);
+    if (dto.phone) {
+      dto.phone = this.normalizePhone(dto.phone);
+    }
     Object.assign(contact, dto);
     return this.contactsRepo.save(contact);
   }
