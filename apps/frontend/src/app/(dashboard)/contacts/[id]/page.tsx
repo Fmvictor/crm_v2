@@ -203,8 +203,13 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                 const Icon = typeIcons[interaction.type];
                 return (
                   <li key={interaction.id} className="relative">
-                    <span className="absolute -left-[21px] flex h-9 w-9 items-center justify-center rounded-full bg-gray-50 border border-gray-100">
-                      <Icon className="h-4 w-4 text-gray-500" />
+                    <span className={cn(
+                      "absolute -left-[21px] flex h-9 w-9 items-center justify-center rounded-full border shadow-sm",
+                      interaction.type === 'whatsapp' 
+                        ? "bg-green-50 border-green-100 text-green-600" 
+                        : "bg-gray-50 border-gray-100 text-gray-500"
+                    )}>
+                      <Icon className="h-4 w-4" />
                     </span>
                     <div className="ml-2 group">
                       <div className="flex items-center gap-2">

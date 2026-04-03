@@ -1,14 +1,28 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@UseGuards(JwtAuthGuard)
 @Controller('whatsapp')
 export class WhatsAppController {
   constructor(private readonly whatsAppService: WhatsAppService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get('templates')
   getTemplates() {
     return this.whatsAppService.getTemplates();
+  }
+
+  @Get('webhook')
+  verifyWebhook(
+    @Query('hub.mode') mode: string,
+    @Query('hub.verify_token') token: string,
+    @Query('hub.challenge') challenge: string,
+  ) {
+    return this.whatsAppService.verifyWebhook(mode, token, challenge);
+  }
+
+  @Post('webhook')
+  handleWebhook(@Body() body: any) {
+    return this.whatsAppService.handleWebhook(body);
   }
 }

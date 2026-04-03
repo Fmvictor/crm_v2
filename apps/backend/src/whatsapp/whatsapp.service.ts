@@ -1,4 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { ContactsService } from '../contacts/contacts.service';
+import { InteractionsService } from '../interactions/interactions.service';
+import { InteractionDirection, InteractionType } from '../interactions/entities/interaction.entity';
 
 export interface SendTemplateOptions {
   to: string;
@@ -11,14 +14,21 @@ export interface SendTemplateOptions {
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
 
+  constructor(
+    @Inject(forwardRef(() => ContactsService))
+    private readonly contactsService: ContactsService,
+    @Inject(forwardRef(() => InteractionsService))
+    private readonly interactionsService: InteractionsService,
+  ) {}
+
   async sendTemplate(options: SendTemplateOptions): Promise<void> {
     const { to, templateName, languageCode = 'es', params = [] } = options;
 
-    const apiUrl = process.env.WHATSAPP_API_URL ?? '';
+    const apiUrl = process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
     const token = process.env.WHATSAPP_API_TOKEN ?? '';
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
 
-    if (!apiUrl || !token || !phoneNumberId) {
+    if (!token || !phoneNumberId) {
       this.logger.warn('WhatsApp no configurado, omitiendo envío');
       return;
     }
@@ -61,6 +71,21 @@ export class WhatsAppService {
     }
 
     this.logger.log(`WhatsApp enviado a ${phone} con plantilla "${templateName}"`);
+
+    // Log internally as interaction
+    try {
+      const contact = await this.contactsService.findOneByPhone(phone);
+      if (contact) {
+        await this.interactionsService.createSystemInteraction({
+          contactId: contact.id,
+          type: InteractionType.WHATSAPP,
+          direction: InteractionDirection.OUTBOUND,
+          notes: `WhatsApp enviado (plantilla: ${templateName})`,
+        });
+      }
+    } catch (err) {
+      this.logger.error(`Error registrando interacción de WhatsApp saliente: ${err.message}`);
+    }
   }
 
   async getTemplates(): Promise<{ name: string; status: string; language: string }[]> {
@@ -85,5 +110,43 @@ export class WhatsAppService {
 
     const json = (await res.json()) as { data: { name: string; status: string; language: string }[] };
     return json.data ?? [];
+  }
+
+  async verifyWebhook(mode: string, token: string, challenge: string): Promise<string> {
+    const MY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+    if (mode === 'subscribe' && token === MY_TOKEN) {
+      return challenge;
+    }
+    throw new Error('Forbidden');
+  }
+
+  async handleWebhook(body: any): Promise<void> {
+    const entry = body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+    const messages = value?.messages;
+
+    if (!messages) return;
+
+    for (const msg of messages) {
+      const from = msg.from; // phone number
+      const text = msg.text?.body || `[Mensaje tipo: ${msg.type}]`;
+      
+      this.logger.log(`Nuevo mensaje de WhatsApp de ${from}: ${text}`);
+
+      try {
+        const contact = await this.contactsService.findOneByPhone(from);
+        if (contact) {
+          await this.interactionsService.createSystemInteraction({
+            contactId: contact.id,
+            type: InteractionType.WHATSAPP,
+            direction: InteractionDirection.INBOUND,
+            notes: text,
+          });
+        }
+      } catch (err) {
+        this.logger.error(`Error registrando interacción de WhatsApp entrante: ${err.message}`);
+      }
+    }
   }
 }

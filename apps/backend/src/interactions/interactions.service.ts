@@ -23,6 +23,11 @@ export class InteractionsService {
     return this.interactionsRepo.save(interaction);
   }
 
+  async createSystemInteraction(dto: CreateInteractionDto): Promise<Interaction> {
+    const interaction = this.interactionsRepo.create(dto);
+    return this.interactionsRepo.save(interaction);
+  }
+
   async findAll(
     filter: FilterInteractionDto,
   ): Promise<PaginatedResult<Interaction>> {

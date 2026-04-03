@@ -89,3 +89,16 @@ export interface PaginatedResult<T> {
   page: number;
   lastPage: number;
 }
+
+export interface Interaction {
+  id: string;
+  type: 'call' | 'whatsapp' | 'email' | 'note' | 'meeting';
+  direction: 'inbound' | 'outbound' | null;
+  notes: string;
+  durationMinutes: number | null;
+  contact: Contact;
+  contactId: string;
+  createdBy: User | null;
+  createdById: string | null;
+  createdAt: string;
+}

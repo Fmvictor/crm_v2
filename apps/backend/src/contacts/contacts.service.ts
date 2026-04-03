@@ -73,6 +73,20 @@ export class ContactsService {
     return contact;
   }
 
+  async findOneByPhone(phone: string): Promise<Contact | null> {
+    // Normalizar teléfono quitando todo lo que no sea número
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    // Buscar por coincidencia exacta o por los últimos digitos (comunmente 9 o 10)
+    // Para ser más robustos usamos el operador LIKE con los últimos 9 dígitos
+    const lastDigits = cleanPhone.slice(-9);
+    
+    return this.contactsRepo.findOne({
+      where: { phone: ILike(`%${lastDigits}`) },
+      relations: ['assignedTo'],
+    });
+  }
+
   async update(id: string, dto: UpdateContactDto): Promise<Contact> {
     const contact = await this.findOne(id);
     Object.assign(contact, dto);
