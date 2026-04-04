@@ -88,6 +88,54 @@ export class WhatsAppService {
     }
   }
 
+  async sendText(to: string, text: string): Promise<void> {
+    const apiUrl = process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
+    const token = process.env.WHATSAPP_API_TOKEN ?? '';
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
+
+    if (!token || !phoneNumberId) {
+      this.logger.warn('WhatsApp no configurado, omitiendo envío');
+      return;
+    }
+
+    const phone = to.replace(/[\s\-\(\)]/g, '');
+
+    const body = {
+      messaging_product: 'whatsapp',
+      to: phone,
+      type: 'text',
+      text: { body: text },
+    };
+
+    const url = `${apiUrl}/${phoneNumberId}/messages`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const error = await res.text();
+      throw new Error(`WhatsApp API error ${res.status}: ${error}`);
+    }
+
+    this.logger.log(`WhatsApp texto enviado a ${phone}`);
+
+    try {
+      const contact = await this.contactsService.findOneByPhone(phone);
+      if (contact) {
+        await this.interactionsService.createSystemInteraction({
+          contactId: contact.id,
+          type: InteractionType.WHATSAPP,
+          direction: InteractionDirection.OUTBOUND,
+          notes: text,
+        });
+      }
+    } catch (err) {
+      this.logger.error(`Error registrando interacción de WhatsApp saliente: ${err.message}`);
+    }
+  }
+
   async getTemplates(): Promise<{ name: string; status: string; language: string }[]> {
     const token = process.env.WHATSAPP_API_TOKEN ?? '';
     const businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ?? '';

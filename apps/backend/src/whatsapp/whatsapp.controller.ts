@@ -18,6 +18,12 @@ export class WhatsAppController {
     return this.whatsAppService.sendTemplate(body);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('send-text')
+  sendText(@Body() body: { to: string; text: string }) {
+    return this.whatsAppService.sendText(body.to, body.text);
+  }
+
   @Get('webhook')
   verifyWebhook(
     @Query('hub.mode') mode: string,

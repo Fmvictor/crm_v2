@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft, Pencil, Phone, Mail, MessageSquare,
-  PhoneCall, AtSign, FileText, Users, Plus, Trash2,
+  PhoneCall, AtSign, FileText, Users, Plus, Trash2, Send,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -65,6 +65,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const [editOpen, setEditOpen] = useState(false);
   const [interactionOpen, setInteractionOpen] = useState(false);
   const [tab, setTab] = useState<'history' | 'whatsapp'>('history');
+  const [waText, setWaText] = useState('');
+  const [waSending, setWaSending] = useState(false);
 
   const { data: contact, isLoading } = useQuery({
     queryKey: ['contacts', id],
@@ -84,6 +86,20 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       api.get<{ data: Enrollment[] }>(`/enrollments?contactId=${id}&limit=20`).then((r) => r.data),
     enabled: !!id,
   });
+
+  const sendWaText = async () => {
+    if (!waText.trim() || !contact?.phone) return;
+    setWaSending(true);
+    try {
+      await api.post('/whatsapp/send-text', { to: contact.phone, text: waText.trim() });
+      setWaText('');
+      qc.invalidateQueries({ queryKey: ['interactions', id] });
+    } catch {
+      // silently ignore
+    } finally {
+      setWaSending(false);
+    }
+  };
 
   const deleteInteraction = useMutation({
     mutationFn: (iId: string) => api.delete(`/interactions/${iId}`),
@@ -278,17 +294,17 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             )
           ) : (
             /* Dedicated WhatsApp View */
-            <div className="space-y-4 py-2">
-              {interactions?.data.filter(i => i.type === 'whatsapp').length === 0 ? (
-                <p className="text-sm text-gray-400 py-4 text-center">No hay mensajes de WhatsApp</p>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {interactions?.data
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 min-h-[200px]">
+                {interactions?.data.filter(i => i.type === 'whatsapp').length === 0 ? (
+                  <p className="text-sm text-gray-400 py-4 text-center">No hay mensajes de WhatsApp</p>
+                ) : (
+                  interactions?.data
                     .filter(i => i.type === 'whatsapp')
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
                     .map((msg) => (
-                      <div 
-                        key={msg.id} 
+                      <div
+                        key={msg.id}
                         className={cn(
                           "flex flex-col max-w-[80%]",
                           msg.direction === 'inbound' ? "self-start" : "self-end items-end"
@@ -296,8 +312,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                       >
                         <div className={cn(
                           "rounded-2xl px-4 py-2 text-sm shadow-sm border",
-                          msg.direction === 'inbound' 
-                            ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm" 
+                          msg.direction === 'inbound'
+                            ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm"
                             : "bg-green-500 border-green-600/10 text-white rounded-tr-sm shadow-green-100"
                         )}>
                           <p className="whitespace-pre-wrap">{msg.notes}</p>
@@ -307,7 +323,25 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                         </time>
                       </div>
                     ))
-                  }
+                )}
+              </div>
+              {contact.phone && (
+                <div className="flex items-end gap-2 pt-3 border-t border-gray-100">
+                  <textarea
+                    value={waText}
+                    onChange={(e) => setWaText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendWaText(); } }}
+                    placeholder="Escribe un mensaje... (solo dentro de la ventana de 24h)"
+                    rows={2}
+                    className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-green-400"
+                  />
+                  <button
+                    onClick={sendWaText}
+                    disabled={waSending || !waText.trim()}
+                    className="p-2.5 bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white rounded-xl transition-colors"
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
                 </div>
               )}
             </div>
