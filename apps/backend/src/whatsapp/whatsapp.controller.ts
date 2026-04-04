@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UseGuards, HttpCode } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -27,6 +27,7 @@ export class WhatsAppController {
     return this.whatsAppService.verifyWebhook(mode, token, challenge);
   }
 
+  @HttpCode(200)
   @Post('webhook')
   handleWebhook(@Body() body: any) {
     return this.whatsAppService.handleWebhook(body);
