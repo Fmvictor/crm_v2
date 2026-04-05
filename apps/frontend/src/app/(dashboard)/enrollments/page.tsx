@@ -34,10 +34,10 @@ export default function EnrollmentsPage() {
   const seen = new Map<string, CourseGroup>();
 
   for (const enrollment of data?.data ?? []) {
-    const key = `${enrollment.courseId}__${enrollment.course?.startDate ?? 'nodate'}`;
+    const key = `${enrollment.course?.id}__${enrollment.course?.startDate ?? 'nodate'}`;
     if (!seen.has(key)) {
       const group: CourseGroup = {
-        courseId: enrollment.courseId,
+        courseId: enrollment.course?.id,
         courseName: enrollment.course?.name ?? '—',
         startDate: enrollment.course?.startDate ?? null,
         enrollments: [],
