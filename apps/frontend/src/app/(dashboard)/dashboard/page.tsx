@@ -128,7 +128,7 @@ export default function DashboardPage() {
                     <p className="text-[11px] text-gray-400 mt-0.5">{formatDate(e.createdAt)}</p>
                   </div>
                   <span className="text-sm font-bold text-green-700 shrink-0">
-                    {formatAmount(e.amountPaid, e.currency ?? 'EUR')}
+                    {formatAmount(e.amountPaid ?? 0, e.currency ?? 'EUR')}
                   </span>
                 </li>
               ))}
