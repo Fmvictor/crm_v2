@@ -1,30 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Users, BookOpen, ClipboardList, TrendingUp } from 'lucide-react';
+import { Users, BookOpen, ClipboardList, TrendingUp, MessageSquare, AtSign } from 'lucide-react';
 import api from '@/lib/api';
-import type { PaginatedResult, Contact, Course, Enrollment } from '@/types';
+import type { PaginatedResult, Enrollment, Interaction } from '@/types';
 import { cn } from '@/lib/utils';
-
-const statusColors: Record<string, string> = {
-  new: 'bg-gray-100 text-gray-700',
-  contacted: 'bg-blue-100 text-blue-700',
-  qualified: 'bg-yellow-100 text-yellow-700',
-  enrolled: 'bg-green-100 text-green-700',
-  lost: 'bg-red-100 text-red-700',
-  pending: 'bg-gray-100 text-gray-700',
-  confirmed: 'bg-blue-100 text-blue-700',
-  active: 'bg-green-100 text-green-700',
-  completed: 'bg-purple-100 text-purple-700',
-  cancelled: 'bg-red-100 text-red-700',
-};
-
-const statusLabels: Record<string, string> = {
-  new: 'Nuevo', contacted: 'Contactado', qualified: 'Calificado',
-  enrolled: 'Inscrito', lost: 'Perdido',
-  pending: 'Pendiente', confirmed: 'Confirmado', active: 'Activo',
-  completed: 'Completado', cancelled: 'Cancelado',
-};
 
 function StatCard({ label, value, icon: Icon, color }: {
   label: string; value: number; icon: React.ElementType; color: string;
@@ -42,28 +22,50 @@ function StatCard({ label, value, icon: Icon, color }: {
   );
 }
 
+function formatDate(iso: string) {
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(iso));
+}
+
+function formatAmount(amount: number | string, currency = 'EUR') {
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(Number(amount));
+}
+
 export default function DashboardPage() {
   const { data: contacts } = useQuery({
     queryKey: ['contacts', 'summary'],
     queryFn: () =>
-      api.get<PaginatedResult<Contact>>('/contacts?limit=100').then((r) => r.data),
+      api.get<PaginatedResult<{ id: string }>>('/contacts?limit=1').then((r) => r.data),
   });
 
   const { data: courses } = useQuery({
     queryKey: ['courses', 'summary'],
     queryFn: () =>
-      api.get<PaginatedResult<Course>>('/courses?status=active&limit=100').then((r) => r.data),
+      api.get<PaginatedResult<{ id: string }>>('/courses?status=active&limit=1').then((r) => r.data),
   });
 
   const { data: enrollments } = useQuery({
     queryKey: ['enrollments', 'summary'],
     queryFn: () =>
-      api.get<PaginatedResult<Enrollment>>('/enrollments?limit=100').then((r) => r.data),
+      api.get<PaginatedResult<{ id: string }>>('/enrollments?limit=1').then((r) => r.data),
   });
 
   const { data: stats } = useQuery({
     queryKey: ['enrollments', 'stats'],
     queryFn: () => api.get('/enrollments/stats').then((r) => r.data),
+  });
+
+  const { data: recentPayments } = useQuery({
+    queryKey: ['enrollments', 'recent-paid'],
+    queryFn: () =>
+      api.get<PaginatedResult<Enrollment>>('/enrollments?paymentStatus=paid&limit=5').then((r) => r.data),
+  });
+
+  const { data: recentInteractions } = useQuery({
+    queryKey: ['interactions', 'dashboard'],
+    queryFn: () =>
+      api.get<PaginatedResult<Interaction>>('/interactions?limit=20').then((r) => r.data),
   });
 
   const totalCollected = stats?.byPayment
@@ -73,9 +75,10 @@ export default function DashboardPage() {
       )
     : 0;
 
-  const recentContacts = contacts?.data.slice(0, 5) ?? [];
-  const activeEnrollments =
-    enrollments?.data.filter((e) => e.status === 'active') ?? [];
+  const latestPayments = recentPayments?.data ?? [];
+  const latestInteractions = (recentInteractions?.data ?? [])
+    .filter((i) => i.type === 'whatsapp' || i.type === 'email')
+    .slice(0, 5);
 
   return (
     <div className="space-y-8">
@@ -110,23 +113,22 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Contactos recientes */}
+        {/* Últimos pagos */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-4">
-            Contactos recientes
-          </h2>
-          {recentContacts.length === 0 ? (
-            <p className="text-sm text-gray-400">Sin contactos aún</p>
+          <h2 className="text-base font-semibold text-gray-900 mb-4">Últimos pagos</h2>
+          {latestPayments.length === 0 ? (
+            <p className="text-sm text-gray-400">Sin pagos registrados</p>
           ) : (
             <ul className="divide-y divide-gray-50">
-              {recentContacts.map((c) => (
-                <li key={c.id} className="py-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{c.name}</p>
-                    <p className="text-xs text-gray-500">{c.email ?? c.phone ?? '—'}</p>
+              {latestPayments.map((e) => (
+                <li key={e.id} className="py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{e.contact.name}</p>
+                    <p className="text-xs text-gray-500 truncate">{e.course.name}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{formatDate(e.createdAt)}</p>
                   </div>
-                  <span className={cn('text-xs font-medium px-2 py-1 rounded-full', statusColors[c.status])}>
-                    {statusLabels[c.status]}
+                  <span className="text-sm font-bold text-green-700 shrink-0">
+                    {formatAmount(e.amountPaid, e.currency ?? 'EUR')}
                   </span>
                 </li>
               ))}
@@ -134,26 +136,38 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Inscripciones activas */}
+        {/* Últimas interacciones */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-4">
-            Inscripciones activas
-          </h2>
-          {activeEnrollments.length === 0 ? (
-            <p className="text-sm text-gray-400">Sin inscripciones activas</p>
+          <h2 className="text-base font-semibold text-gray-900 mb-4">Últimas interacciones</h2>
+          {latestInteractions.length === 0 ? (
+            <p className="text-sm text-gray-400">Sin interacciones recientes</p>
           ) : (
             <ul className="divide-y divide-gray-50">
-              {activeEnrollments.slice(0, 5).map((e) => (
-                <li key={e.id} className="py-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{e.contact.name}</p>
-                    <p className="text-xs text-gray-500">{e.course.name}</p>
-                  </div>
-                  <span className={cn('text-xs font-medium px-2 py-1 rounded-full', statusColors[e.paymentStatus])}>
-                    {statusLabels[e.paymentStatus]}
-                  </span>
-                </li>
-              ))}
+              {latestInteractions.map((i) => {
+                const isWA = i.type === 'whatsapp';
+                const Icon = isWA ? MessageSquare : AtSign;
+                return (
+                  <li key={i.id} className="py-3 flex items-start gap-3">
+                    <div className={cn(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border',
+                      isWA
+                        ? 'bg-green-50 border-green-100 text-green-600'
+                        : 'bg-blue-50 border-blue-100 text-blue-600',
+                    )}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {i.contact?.name ?? 'Desconocido'}
+                        </p>
+                        <time className="text-[11px] text-gray-400 shrink-0">{formatDate(i.createdAt)}</time>
+                      </div>
+                      <p className="text-xs text-gray-500 truncate mt-0.5">{i.notes}</p>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

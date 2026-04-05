@@ -64,7 +64,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [interactionOpen, setInteractionOpen] = useState(false);
-  const [tab, setTab] = useState<'history' | 'whatsapp'>('history');
+  const [tab, setTab] = useState<'history' | 'whatsapp' | 'email'>('history');
   const [waText, setWaText] = useState('');
   const [waSending, setWaSending] = useState(false);
 
@@ -217,7 +217,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                 Historial
                 {tab === 'history' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
               </button>
-              <button 
+              <button
                 onClick={() => setTab('whatsapp')}
                 className={cn(
                   "pb-2 text-sm font-semibold transition-colors relative",
@@ -226,6 +226,16 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               >
                 WhatsApp
                 {tab === 'whatsapp' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-600 rounded-full" />}
+              </button>
+              <button
+                onClick={() => setTab('email')}
+                className={cn(
+                  "pb-2 text-sm font-semibold transition-colors relative",
+                  tab === 'email' ? "text-blue-600" : "text-gray-400 hover:text-gray-600"
+                )}
+              >
+                Email
+                {tab === 'email' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
               </button>
             </div>
             <button
@@ -236,22 +246,23 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             </button>
           </div>
 
-          {tab === 'history' ? (
-            /* Historical Timeline */
-            (interactions?.data.length ?? 0) === 0 ? (
-              <p className="text-sm text-gray-400 py-4">Sin interacciones registradas</p>
+          {tab === 'history' && (() => {
+            const historyItems = (interactions?.data ?? []).filter(
+              (i) => i.type === 'whatsapp' || i.type === 'email',
+            );
+            return historyItems.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4">Sin mensajes registrados</p>
             ) : (
               <div className="space-y-6 py-2">
-                {interactions?.data.map((interaction) => {
+                {historyItems.map((interaction) => {
                   const isWA = interaction.type === 'whatsapp';
                   const Icon = typeIcons[interaction.type];
                   const directionText = interaction.direction === 'inbound' ? 'entrante' : 'saliente';
-
                   return (
                     <div key={interaction.id} className="relative pl-12 group">
                       <div className={cn(
                         "absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full border shadow-sm z-10",
-                        isWA ? "bg-green-50 border-green-100 text-green-600" : "bg-gray-50 border-gray-100 text-gray-500"
+                        isWA ? "bg-green-50 border-green-100 text-green-600" : "bg-blue-50 border-blue-100 text-blue-600"
                       )}>
                         <Icon className="h-4 w-4" />
                       </div>
@@ -280,9 +291,9 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                         </div>
                         <div className={cn(
                           "inline-block rounded-2xl px-4 py-2 text-sm max-w-[90%] shadow-sm border",
-                          isWA 
+                          isWA
                             ? (interaction.direction === 'inbound' ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm" : "bg-green-50 border-green-100 text-green-900 rounded-tr-sm")
-                            : "bg-gray-50/50 border-gray-100 text-gray-600 rounded-xl"
+                            : (interaction.direction === 'inbound' ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm" : "bg-blue-50 border-blue-100 text-blue-900 rounded-tr-sm")
                         )}>
                           <p className="whitespace-pre-wrap">{interaction.notes}</p>
                         </div>
@@ -291,15 +302,16 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   );
                 })}
               </div>
-            )
-          ) : (
-            /* Dedicated WhatsApp View */
+            );
+          })()}
+
+          {tab === 'whatsapp' && (
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-3 min-h-[200px]">
-                {interactions?.data.filter(i => i.type === 'whatsapp').length === 0 ? (
+                {(interactions?.data ?? []).filter(i => i.type === 'whatsapp').length === 0 ? (
                   <p className="text-sm text-gray-400 py-4 text-center">No hay mensajes de WhatsApp</p>
                 ) : (
-                  interactions?.data
+                  (interactions?.data ?? [])
                     .filter(i => i.type === 'whatsapp')
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
                     .map((msg) => (
@@ -343,6 +355,39 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                     <Send className="h-4 w-4" />
                   </button>
                 </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'email' && (
+            <div className="flex flex-col gap-3 min-h-[200px]">
+              {(interactions?.data ?? []).filter(i => i.type === 'email').length === 0 ? (
+                <p className="text-sm text-gray-400 py-4 text-center">No hay emails registrados</p>
+              ) : (
+                (interactions?.data ?? [])
+                  .filter(i => i.type === 'email')
+                  .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                  .map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={cn(
+                        "flex flex-col max-w-[80%]",
+                        msg.direction === 'inbound' ? "self-start" : "self-end items-end"
+                      )}
+                    >
+                      <div className={cn(
+                        "rounded-2xl px-4 py-2 text-sm shadow-sm border",
+                        msg.direction === 'inbound'
+                          ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm"
+                          : "bg-blue-500 border-blue-600/10 text-white rounded-tr-sm shadow-blue-100"
+                      )}>
+                        <p className="whitespace-pre-wrap">{msg.notes}</p>
+                      </div>
+                      <time className="text-[10px] text-gray-400 mt-1 px-1">
+                        {formatDate(msg.createdAt)}
+                      </time>
+                    </div>
+                  ))
               )}
             </div>
           )}
