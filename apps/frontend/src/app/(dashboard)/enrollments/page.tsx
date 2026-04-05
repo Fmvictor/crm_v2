@@ -2,147 +2,127 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Pencil } from 'lucide-react';
+import { Plus, BookOpen, Users, Calendar } from 'lucide-react';
+import Link from 'next/link';
 import api from '@/lib/api';
-import { cn } from '@/lib/utils';
-import type { PaginatedResult, Enrollment, EnrollmentStatus, PaymentStatus } from '@/types';
+import type { PaginatedResult, Enrollment } from '@/types';
 import { EnrollmentForm } from '@/components/enrollments/EnrollmentForm';
 
-const enrollStatusColors: Record<EnrollmentStatus, string> = {
-  pending: 'bg-gray-100 text-gray-700', confirmed: 'bg-blue-100 text-blue-700',
-  active: 'bg-green-100 text-green-700', completed: 'bg-purple-100 text-purple-700',
-  cancelled: 'bg-red-100 text-red-700',
-};
-const enrollStatusLabels: Record<EnrollmentStatus, string> = {
-  pending: 'Pendiente', confirmed: 'Confirmado', active: 'Activo',
-  completed: 'Completado', cancelled: 'Cancelado',
-};
-const paymentColors: Record<PaymentStatus, string> = {
-  pending: 'bg-gray-100 text-gray-600', partial: 'bg-yellow-100 text-yellow-700',
-  paid: 'bg-green-100 text-green-700', refunded: 'bg-red-100 text-red-700',
-};
-const paymentLabels: Record<PaymentStatus, string> = {
-  pending: 'Sin pagar', partial: 'Parcial', paid: 'Pagado', refunded: 'Reembolsado',
+function formatDate(dateStr: string | null | undefined) {
+  if (!dateStr) return null;
+  return new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(dateStr));
+}
+
+type CourseGroup = {
+  courseId: string;
+  courseName: string;
+  startDate: string | null;
+  enrollments: Enrollment[];
 };
 
 export default function EnrollmentsPage() {
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Enrollment | undefined>();
-
-  const params = new URLSearchParams({ page: String(page), limit: '20', ...(status && { status }) });
 
   const { data, isLoading } = useQuery({
-    queryKey: ['enrollments', status, page],
-    queryFn: () => api.get<PaginatedResult<Enrollment>>(`/enrollments?${params}`).then((r) => r.data),
-    placeholderData: (prev) => prev,
+    queryKey: ['enrollments', 'all'],
+    queryFn: () =>
+      api.get<PaginatedResult<Enrollment>>(`/enrollments?limit=200`).then((r) => r.data),
   });
 
-  const openCreate = () => { setEditing(undefined); setFormOpen(true); };
-  const openEdit = (e: Enrollment, ev: React.MouseEvent) => {
-    ev.stopPropagation();
-    setEditing(e);
-    setFormOpen(true);
-  };
+  // Agrupar por curso + fecha
+  const groups: CourseGroup[] = [];
+  const seen = new Map<string, CourseGroup>();
+
+  for (const enrollment of data?.data ?? []) {
+    const key = `${enrollment.courseId}__${enrollment.course?.startDate ?? 'nodate'}`;
+    if (!seen.has(key)) {
+      const group: CourseGroup = {
+        courseId: enrollment.courseId,
+        courseName: enrollment.course?.name ?? '—',
+        startDate: enrollment.course?.startDate ?? null,
+        enrollments: [],
+      };
+      seen.set(key, group);
+      groups.push(group);
+    }
+    seen.get(key)!.enrollments.push(enrollment);
+  }
+
+  // Ordenar por fecha ascendente, sin fecha al final
+  groups.sort((a, b) => {
+    if (!a.startDate && !b.startDate) return 0;
+    if (!a.startDate) return 1;
+    if (!b.startDate) return -1;
+    return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+  });
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Inscripciones</h1>
         <button
-          onClick={openCreate}
+          onClick={() => setFormOpen(true)}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
           <Plus className="h-4 w-4" /> Nueva inscripción
         </button>
       </div>
 
-      <div className="flex gap-3">
-        <select
-          value={status}
-          onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-          className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">Todos los estados</option>
-          {(Object.keys(enrollStatusLabels) as EnrollmentStatus[]).map((s) => (
-            <option key={s} value={s}>{enrollStatusLabels[s]}</option>
-          ))}
-        </select>
-      </div>
+      {isLoading ? (
+        <div className="text-sm text-gray-400">Cargando...</div>
+      ) : groups.length === 0 ? (
+        <div className="text-sm text-gray-400">Sin inscripciones</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {groups.map((group) => (
+            <div
+              key={`${group.courseId}__${group.startDate}`}
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4"
+            >
+              {/* Cabecera tarjeta */}
+              <div className="space-y-1">
+                <div className="flex items-start gap-2">
+                  <BookOpen className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                  <h2 className="text-sm font-semibold text-gray-900 leading-snug">{group.courseName}</h2>
+                </div>
+                {group.startDate ? (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500 pl-6">
+                    <Calendar className="h-3 w-3" />
+                    {formatDate(group.startDate)}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 pl-6">Sin fecha asignada</p>
+                )}
+              </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        {isLoading ? (
-          <div className="p-12 text-center text-sm text-gray-400">Cargando...</div>
-        ) : (data?.data.length ?? 0) === 0 ? (
-          <div className="p-12 text-center text-sm text-gray-400">Sin inscripciones</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Alumno</th>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Curso</th>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Estado</th>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Pago</th>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Monto</th>
-                <th className="px-6 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {data?.data.map((e) => (
-                <tr key={e.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 font-medium text-gray-900">{e.contact.name}</td>
-                  <td className="px-6 py-4 text-gray-500 max-w-[200px] truncate">{e.course.name}</td>
-                  <td className="px-6 py-4">
-                    <span className={cn('px-2 py-1 rounded-full text-xs font-medium', enrollStatusColors[e.status])}>
-                      {enrollStatusLabels[e.status]}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn('px-2 py-1 rounded-full text-xs font-medium', paymentColors[e.paymentStatus])}>
-                      {paymentLabels[e.paymentStatus]}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-700">
-                    {e.amountPaid != null ? `$${Number(e.amountPaid).toLocaleString('es-MX')}` : '—'}
-                    {e.amountTotal != null && (
-                      <span className="text-gray-400"> / ${Number(e.amountTotal).toLocaleString('es-MX')}</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <button
-                      onClick={(ev) => openEdit(e, ev)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {(data?.lastPage ?? 0) > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
-            <p className="text-sm text-gray-500">
-              {data?.total} inscripciones · página {data?.page} de {data?.lastPage}
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
-                Anterior
-              </button>
-              <button onClick={() => setPage((p) => p + 1)} disabled={page === data?.lastPage}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
-                Siguiente
-              </button>
+              {/* Alumnos */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-2">
+                  <Users className="h-3.5 w-3.5" />
+                  {group.enrollments.length} alumno{group.enrollments.length !== 1 ? 's' : ''}
+                </div>
+                <ul className="divide-y divide-gray-50">
+                  {group.enrollments.map((e) => (
+                    <li key={e.id} className="py-1.5">
+                      <Link
+                        href={`/contacts/${e.contact?.id}`}
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                      >
+                        {e.contact?.name ?? '—'}
+                      </Link>
+                      {e.contact?.email && (
+                        <p className="text-xs text-gray-400 truncate">{e.contact.email}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
-      <EnrollmentForm open={formOpen} onClose={() => setFormOpen(false)} enrollment={editing} />
+      <EnrollmentForm open={formOpen} onClose={() => setFormOpen(false)} />
     </div>
   );
 }

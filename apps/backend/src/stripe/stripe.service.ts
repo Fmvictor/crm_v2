@@ -96,20 +96,31 @@ export class StripeService {
 
     // --- Curso ---
     const rawItems = metadata['wc_items'] ?? '';
-    // "CMB x1" → "CMB"
     const courseCode = rawItems.replace(/\s+x\d+$/, '').trim() || 'Sin nombre';
 
-    let course = await this.coursesRepo.findOne({
-      where: { name: ILike(`%${courseCode}%`) },
-    });
+    const courseDateRaw = metadata['course_date'] ?? null;
+    const courseDate = courseDateRaw ? new Date(courseDateRaw) : null;
+
+    // Buscar por nombre + fecha (misma edición)
+    let course: Course | null = null;
+    if (courseDate) {
+      course = await this.coursesRepo.findOne({
+        where: { name: ILike(`%${courseCode}%`), startDate: courseDate },
+      });
+    } else {
+      course = await this.coursesRepo.findOne({
+        where: { name: ILike(`%${courseCode}%`) },
+      });
+    }
 
     if (!course) {
       course = this.coursesRepo.create({
         name: courseCode,
         status: CourseStatus.ACTIVE,
+        startDate: courseDate,
       });
       course = await this.coursesRepo.save(course);
-      this.logger.log(`Curso creado automáticamente: ${courseCode}`);
+      this.logger.log(`Curso creado automáticamente: ${courseCode} (${courseDateRaw ?? 'sin fecha'})`);
     }
 
     // --- Inscripción ---
