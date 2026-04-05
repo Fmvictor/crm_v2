@@ -67,6 +67,9 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const [tab, setTab] = useState<'history' | 'whatsapp' | 'email'>('history');
   const [waText, setWaText] = useState('');
   const [waSending, setWaSending] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
 
   const { data: contact, isLoading } = useQuery({
     queryKey: ['contacts', id],
@@ -98,6 +101,29 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       // silently ignore
     } finally {
       setWaSending(false);
+    }
+  };
+
+  const sendEmail = async () => {
+    if (!emailBody.trim()) return;
+    setEmailSending(true);
+    try {
+      const notes = emailSubject.trim()
+        ? `Asunto: ${emailSubject.trim()}\n\n${emailBody.trim()}`
+        : emailBody.trim();
+      await api.post('/interactions', {
+        type: 'email',
+        direction: 'outbound',
+        notes,
+        contactId: id,
+      });
+      setEmailSubject('');
+      setEmailBody('');
+      qc.invalidateQueries({ queryKey: ['interactions', id] });
+    } catch {
+      // silently ignore
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -344,8 +370,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                     onChange={(e) => setWaText(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendWaText(); } }}
                     placeholder="Escribe un mensaje... (solo dentro de la ventana de 24h)"
-                    rows={2}
-                    className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-green-400"
+                    rows={6}
+                    className="flex-1 text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-green-400"
                   />
                   <button
                     onClick={sendWaText}
@@ -360,34 +386,62 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
           )}
 
           {tab === 'email' && (
-            <div className="flex flex-col gap-3 min-h-[200px]">
-              {(interactions?.data ?? []).filter(i => i.type === 'email').length === 0 ? (
-                <p className="text-sm text-gray-400 py-4 text-center">No hay emails registrados</p>
-              ) : (
-                (interactions?.data ?? [])
-                  .filter(i => i.type === 'email')
-                  .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                  .map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={cn(
-                        "flex flex-col max-w-[80%]",
-                        msg.direction === 'inbound' ? "self-start" : "self-end items-end"
-                      )}
-                    >
-                      <div className={cn(
-                        "rounded-2xl px-4 py-2 text-sm shadow-sm border",
-                        msg.direction === 'inbound'
-                          ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm"
-                          : "bg-blue-500 border-blue-600/10 text-white rounded-tr-sm shadow-blue-100"
-                      )}>
-                        <p className="whitespace-pre-wrap">{msg.notes}</p>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 min-h-[100px]">
+                {(interactions?.data ?? []).filter(i => i.type === 'email').length === 0 ? (
+                  <p className="text-sm text-gray-400 py-4 text-center">No hay emails registrados</p>
+                ) : (
+                  (interactions?.data ?? [])
+                    .filter(i => i.type === 'email')
+                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                    .map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={cn(
+                          "flex flex-col max-w-[80%]",
+                          msg.direction === 'inbound' ? "self-start" : "self-end items-end"
+                        )}
+                      >
+                        <div className={cn(
+                          "rounded-2xl px-4 py-2 text-sm shadow-sm border",
+                          msg.direction === 'inbound'
+                            ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm"
+                            : "bg-blue-500 border-blue-600/10 text-white rounded-tr-sm shadow-blue-100"
+                        )}>
+                          <p className="whitespace-pre-wrap">{msg.notes}</p>
+                        </div>
+                        <time className="text-[10px] text-gray-400 mt-1 px-1">
+                          {formatDate(msg.createdAt)}
+                        </time>
                       </div>
-                      <time className="text-[10px] text-gray-400 mt-1 px-1">
-                        {formatDate(msg.createdAt)}
-                      </time>
-                    </div>
-                  ))
+                    ))
+                )}
+              </div>
+              {contact?.email && (
+                <div className="flex flex-col gap-2 pt-3 border-t border-gray-100">
+                  <input
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    placeholder="Asunto (opcional)"
+                    className="w-full text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={emailBody}
+                      onChange={(e) => setEmailBody(e.target.value)}
+                      placeholder="Escribe el cuerpo del email..."
+                      rows={5}
+                      className="flex-1 text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                    <button
+                      onClick={sendEmail}
+                      disabled={emailSending || !emailBody.trim()}
+                      className="p-2.5 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white rounded-xl transition-colors"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}

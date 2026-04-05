@@ -80,7 +80,7 @@ export function WhatsAppTemplateForm({ contactId, phone }: WhatsAppTemplateFormP
             value={selectedTemplate}
             onChange={(e) => setSelectedTemplate(e.target.value)}
             disabled={isLoading || mutation.isPending}
-            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none disabled:bg-gray-50"
+            className="w-full text-sm text-gray-900 border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none disabled:bg-gray-50"
           >
             <option value="">-- Elige una plantilla --</option>
             {templates.filter(t => t.status === 'APPROVED').map((t) => (
@@ -105,7 +105,7 @@ export function WhatsAppTemplateForm({ contactId, phone }: WhatsAppTemplateFormP
                   value={val}
                   onChange={(e) => updateParam(idx, e.target.value)}
                   placeholder={`Valor variable {{${idx + 1}}}`}
-                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
+                  className="flex-1 text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
                 />
                 <button
                   onClick={() => removeParam(idx)}
