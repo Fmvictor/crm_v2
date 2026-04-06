@@ -51,7 +51,7 @@ export function EnrollmentForm({ open, onClose, enrollment, preselectedContactId
       defaultValues: enrollment
         ? {
             contactId: enrollment.contact.id,
-            courseId: enrollment.course.id,
+            courseId: enrollment.course?.id ?? '',
             status: enrollment.status,
             paymentStatus: enrollment.paymentStatus,
             amountTotal: enrollment.amountTotal != null ? String(enrollment.amountTotal) : '',
