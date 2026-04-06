@@ -40,12 +40,26 @@ export class StripeService {
   async handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent): Promise<void> {
     const paymentId = paymentIntent.id;
 
-    // Idempotencia: si ya procesamos este pago, ignorar
-    const existing = await this.enrollmentsRepo.findOne({
+    // Idempotencia: si el enrollment ya existe, intentar igualmente crear la ficha grupal
+    const existingByPayment = await this.enrollmentsRepo.findOne({
       where: { stripePaymentId: paymentId },
+      relations: ['contact', 'course'],
     });
-    if (existing) {
-      this.logger.log(`Pago ${paymentId} ya procesado, ignorando`);
+    if (existingByPayment) {
+      this.logger.log(`Pago ${paymentId} ya procesado en enrollment, verificando ficha grupal`);
+      const metadata = paymentIntent.metadata ?? {};
+      const courseDateRaw = metadata['course_date'] ?? null;
+      const courseDate = courseDateRaw ? new Date(courseDateRaw) : null;
+      if (existingByPayment.course) {
+        await this.upsertCourseSession({
+          course: existingByPayment.course,
+          courseDate,
+          studentName: existingByPayment.contact?.name ?? 'Desconocido',
+          studentEmail: existingByPayment.contact?.email ?? null,
+          contactId: existingByPayment.contactId,
+          stripePaymentId: paymentId,
+        });
+      }
       return;
     }
 
