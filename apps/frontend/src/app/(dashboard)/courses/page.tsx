@@ -68,6 +68,11 @@ export default function CoursesPage() {
               </div>
 
               <div className="flex items-center gap-4">
+                {course.startDate && (
+                  <div className="flex items-center gap-1.5 text-sm text-gray-500">
+                    <span>Inicio: {course.startDate.slice(0, 10)}</span>
+                  </div>
+                )}
                 {course.durationDays != null && (
                   <div className="flex items-center gap-1.5 text-sm text-gray-500">
                     <Clock className="h-3.5 w-3.5 text-gray-400" />
