@@ -87,10 +87,6 @@ export function CourseForm({ open, onClose, course }: Props) {
           <input {...register('name')} className={inputClass} placeholder="Ej: Marketing Digital" />
         </Field>
 
-        <Field label="Fecha de inicio" error={errors.startDate?.message}>
-          <input {...register('startDate')} type="date" className={inputClass} />
-        </Field>
-
         <div className="grid grid-cols-2 gap-4">
           <Field label="Duración (días)" error={errors.durationDays?.message}>
             <input {...register('durationDays')} type="number" min={1} className={inputClass} placeholder="30" />
