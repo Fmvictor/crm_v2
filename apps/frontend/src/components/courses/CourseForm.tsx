@@ -13,7 +13,6 @@ import type { Course } from '@/types';
 
 const schema = z.object({
   name: z.string().min(1, 'Requerido').max(150),
-  startDate: z.string().optional(),
   durationDays: z.string().optional(),
   price: z.string().optional(),
   description: z.string().optional(),
@@ -39,12 +38,11 @@ export function CourseForm({ open, onClose, course }: Props) {
       reset(course
         ? {
             name: course.name,
-            startDate: course.startDate?.slice(0, 10) ?? '',
             durationDays: course.durationDays != null ? String(course.durationDays) : '',
             price: course.price != null ? String(course.price) : '',
             description: course.description ?? '',
           }
-        : { name: '', startDate: '', durationDays: '', price: '', description: '' }
+        : { name: '', durationDays: '', price: '', description: '' }
       );
     }
   }, [open, course, reset]);
@@ -53,7 +51,6 @@ export function CourseForm({ open, onClose, course }: Props) {
     mutationFn: (data: FormData) => {
       const payload = {
         name: data.name,
-        startDate: data.startDate || undefined,
         durationDays: data.durationDays ? Number(data.durationDays) : undefined,
         price: data.price ? Number(data.price) : undefined,
         description: data.description || undefined,
