@@ -1,25 +1,27 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { Sidebar } from '@/components/layout/Sidebar';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, fetchMe } = useAuthStore();
+  const { isAuthenticated, initialize } = useAuthStore();
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace('/login');
-      return;
-    }
-    fetchMe().catch(() => {
-      router.replace('/login');
-    });
-  }, [isAuthenticated, router, fetchMe]);
+    // Siempre intentar recuperar sesión desde la cookie HttpOnly al montar
+    initialize().finally(() => setChecking(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!isAuthenticated) return null;
+  useEffect(() => {
+    if (!checking && !isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [checking, isAuthenticated, router]);
+
+  if (checking || !isAuthenticated) return null;
 
   return (
     <div className="flex h-screen overflow-hidden">

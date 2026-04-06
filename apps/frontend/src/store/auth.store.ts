@@ -2,17 +2,19 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import axios from 'axios';
 import type { User } from '@/types';
-import api from '@/lib/api';
+import api, { setApiAccessToken } from '@/lib/api';
 
 interface AuthState {
   user: User | null;
   accessToken: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  setAccessToken: (token: string) => void;
   fetchMe: () => Promise<void>;
+  initialize: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -20,40 +22,60 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       accessToken: null,
-      refreshToken: null,
       isAuthenticated: false,
 
       login: async (email, password) => {
         const { data } = await api.post('/auth/login', { email, password });
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
-        set({
-          accessToken: data.accessToken,
-          refreshToken: data.refreshToken,
-          isAuthenticated: true,
-        });
+        setApiAccessToken(data.accessToken);
+        set({ accessToken: data.accessToken, isAuthenticated: true });
         const me = await api.get('/auth/me');
         set({ user: me.data });
       },
 
-      logout: () => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+      logout: async () => {
+        try {
+          await api.post('/auth/logout');
+        } catch {
+          // ignorar errores de red en logout
+        }
+        setApiAccessToken(null);
+        set({ user: null, accessToken: null, isAuthenticated: false });
+      },
+
+      setAccessToken: (token: string) => {
+        setApiAccessToken(token);
+        set({ accessToken: token, isAuthenticated: true });
       },
 
       fetchMe: async () => {
         const { data } = await api.get('/auth/me');
         set({ user: data, isAuthenticated: true });
       },
+
+      // Llamar al montar la app para recuperar sesión desde la cookie HttpOnly
+      initialize: async () => {
+        try {
+          const { data } = await axios.post(
+            '/api/v1/auth/refresh',
+            {},
+            { withCredentials: true },
+          );
+          setApiAccessToken(data.accessToken);
+          set({ accessToken: data.accessToken, isAuthenticated: true });
+          const me = await api.get('/auth/me');
+          set({ user: me.data });
+        } catch {
+          setApiAccessToken(null);
+          set({ user: null, accessToken: null, isAuthenticated: false });
+        }
+      },
     }),
     {
       name: 'emeb-auth',
+      // Solo persistir user e isAuthenticated — el accessToken queda en memoria
       partialize: (state) => ({
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
-        isAuthenticated: state.isAuthenticated,
         user: state.user,
+        isAuthenticated: state.isAuthenticated,
       }),
     },
   ),

@@ -1,20 +1,27 @@
 import axios from 'axios';
 
+// Access token en memoria — actualizado desde el auth store
+let _accessToken: string | null = null;
+
+export function setApiAccessToken(token: string | null) {
+  _accessToken = token;
+}
+
 const api = axios.create({
   baseURL: '/api/v1',
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true, // envía la cookie refreshToken automáticamente
 });
 
-// Adjuntar token en cada petición
+// Adjuntar access token desde memoria
 api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('accessToken');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (_accessToken) config.headers.Authorization = `Bearer ${_accessToken}`;
   return config;
 });
 
-// Manejar expiración del token
+// Fix race condition: todas las peticiones con 401 simultáneas comparten un único refresh
+let refreshPromise: Promise<string | null> | null = null;
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -22,21 +29,24 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (!refreshToken) throw new Error('No refresh token');
-
-        const { data } = await axios.post(
-          `${api.defaults.baseURL}/auth/refresh`,
-          { refreshToken },
-        );
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
-        original.headers.Authorization = `Bearer ${data.accessToken}`;
+        if (!refreshPromise) {
+          refreshPromise = axios
+            .post('/api/v1/auth/refresh', {}, { withCredentials: true })
+            .then(({ data }) => data.accessToken as string)
+            .finally(() => { refreshPromise = null; });
+        }
+        const newToken = await refreshPromise;
+        if (!newToken) throw new Error('No token');
+        setApiAccessToken(newToken);
+        original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
       } catch {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        window.location.href = '/login';
+        setApiAccessToken(null);
+        if (typeof window !== 'undefined') {
+          // Limpiar estado persistido de Zustand y redirigir a login
+          localStorage.removeItem('emeb-auth');
+          window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);
