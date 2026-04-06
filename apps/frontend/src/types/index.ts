@@ -40,6 +40,7 @@ export interface Course {
   category: string | null;
   price: number | null;
   durationHours: number | null;
+  durationDays: number | null;
   modality: CourseModality;
   status: CourseStatus;
   startDate: string | null;

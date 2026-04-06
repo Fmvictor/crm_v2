@@ -40,6 +40,9 @@ export class Course {
   @Column({ type: 'int', nullable: true })
   durationHours: number | null;
 
+  @Column({ type: 'int', nullable: true })
+  durationDays: number | null;
+
   @Column({
     type: 'enum',
     enum: CourseModality,

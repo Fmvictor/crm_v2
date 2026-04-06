@@ -43,6 +43,12 @@ export class CreateCourseDto {
   @IsOptional()
   durationHours?: number;
 
+  @ApiPropertyOptional({ example: 30 })
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  durationDays?: number;
+
   @ApiPropertyOptional({ enum: CourseModality, default: CourseModality.ONLINE })
   @IsEnum(CourseModality)
   @IsOptional()
