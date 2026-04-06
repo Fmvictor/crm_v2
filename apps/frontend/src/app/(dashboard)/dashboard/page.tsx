@@ -123,8 +123,8 @@ export default function DashboardPage() {
               {latestPayments.map((e) => (
                 <li key={e.id} className="py-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{e.contact.name}</p>
-                    <p className="text-xs text-gray-500 truncate">{e.course.name}</p>
+                    <p className="text-sm font-medium text-gray-900 truncate">{e.contact?.name ?? '—'}</p>
+                    <p className="text-xs text-gray-500 truncate">{e.course?.name ?? '—'}</p>
                     <p className="text-[11px] text-gray-400 mt-0.5">{formatDate(e.createdAt)}</p>
                   </div>
                   <span className="text-sm font-bold text-green-700 shrink-0">
