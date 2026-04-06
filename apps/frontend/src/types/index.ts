@@ -59,7 +59,7 @@ export type PaymentStatus = 'pending' | 'partial' | 'paid' | 'refunded';
 export interface Enrollment {
   id: string;
   contact: Contact;
-  course: Course;
+  course: Course | null;
   status: EnrollmentStatus;
   paymentStatus: PaymentStatus;
   amountPaid: number | null;

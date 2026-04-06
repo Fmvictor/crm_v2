@@ -224,7 +224,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               <ul className="space-y-2">
                 {enrollments?.data.map((e) => (
                   <li key={e.id} className="text-sm">
-                    <p className="font-medium text-gray-900 truncate">{e.course.name}</p>
+                    <p className="font-medium text-gray-900 truncate">{e.course?.name ?? '—'}</p>
                     <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full', enrollStatusColors[e.status])}>
                       {enrollStatusLabels[e.status]}
                     </span>
