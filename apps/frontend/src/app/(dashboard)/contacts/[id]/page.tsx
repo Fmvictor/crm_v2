@@ -5,7 +5,7 @@ import { use } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowLeft, Pencil, Phone, Mail, MessageSquare,
+  ArrowLeft, Pencil, Phone, Mail, MapPin, MessageSquare,
   PhoneCall, AtSign, FileText, Users, Plus, Trash2, Send,
 } from 'lucide-react';
 import api from '@/lib/api';
@@ -158,6 +158,12 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             )}
             {contact.phone && (
               <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{contact.phone}</span>
+            )}
+            {(contact.address || contact.city || contact.postalCode || contact.country) && (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3.5 w-3.5" />
+                {[contact.address, contact.city, contact.postalCode, contact.country].filter(Boolean).join(', ')}
+              </span>
             )}
           </div>
         </div>

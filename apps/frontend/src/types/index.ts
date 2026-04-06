@@ -25,6 +25,10 @@ export interface Contact {
   source: ContactSource;
   courseInterest: string | null;
   notes: string | null;
+  address: string | null;
+  city: string | null;
+  postalCode: string | null;
+  country: string | null;
   assignedTo: User | null;
   createdAt: string;
   updatedAt: string;
