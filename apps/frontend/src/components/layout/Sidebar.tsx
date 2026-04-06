@@ -12,6 +12,7 @@ import {
   GraduationCap,
   CreditCard,
   Zap,
+  Database,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ const nav = [
   { href: '/interactions', label: 'Interacciones', icon: MessageSquare },
   { href: '/pagos', label: 'Pagos', icon: CreditCard },
   { href: '/automatizaciones', label: 'Automatizaciones', icon: Zap },
+  { href: '/database', label: 'Base de datos', icon: Database },
 ];
 
 export function Sidebar() {
