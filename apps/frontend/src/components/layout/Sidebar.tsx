@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 const nav = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/contacts', label: 'Contactos', icon: Users },
+  { href: '/courses', label: 'Cursos', icon: BookOpen },
   { href: '/enrollments', label: 'Inscripciones', icon: ClipboardList },
   { href: '/interactions', label: 'Interacciones', icon: MessageSquare },
   { href: '/pagos', label: 'Pagos', icon: CreditCard },
