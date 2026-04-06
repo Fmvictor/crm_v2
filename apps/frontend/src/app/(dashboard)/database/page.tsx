@@ -316,13 +316,13 @@ export default function DatabasePage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {data.rows.map((row) => {
-                  const r = row as Contact & Course & Enrollment & Interaction & User & Automation;
-                  if (activeTable === 'contacts')     return <ContactRow     key={r.id} row={r} />;
-                  if (activeTable === 'courses')      return <CourseRow      key={r.id} row={r} />;
-                  if (activeTable === 'enrollments')  return <EnrollmentRow  key={r.id} row={r} />;
-                  if (activeTable === 'interactions') return <InteractionRow key={r.id} row={r} />;
-                  if (activeTable === 'users')        return <UserRow        key={r.id} row={r} />;
-                  return                                     <AutomationRow  key={r.id} row={r} />;
+                  const id = (row as { id: string }).id;
+                  if (activeTable === 'contacts')     return <ContactRow     key={id} row={row as Contact} />;
+                  if (activeTable === 'courses')      return <CourseRow      key={id} row={row as Course} />;
+                  if (activeTable === 'enrollments')  return <EnrollmentRow  key={id} row={row as Enrollment} />;
+                  if (activeTable === 'interactions') return <InteractionRow key={id} row={row as Interaction} />;
+                  if (activeTable === 'users')        return <UserRow        key={id} row={row as User} />;
+                  return                                     <AutomationRow  key={id} row={row as Automation} />;
                 })}
               </tbody>
             </table>
