@@ -54,13 +54,13 @@ export default function PagosPage() {
               {data?.data.map((e) => (
                 <tr key={e.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4">
-                    <p className="font-medium text-gray-900">{e.contact.name}</p>
-                    {e.contact.email && (
+                    <p className="font-medium text-gray-900">{e.contact?.name ?? '—'}</p>
+                    {e.contact?.email && (
                       <p className="text-xs text-gray-400">{e.contact.email}</p>
                     )}
                   </td>
                   <td className="px-6 py-4 text-gray-600 max-w-[200px] truncate">
-                    {e.course.name}
+                    {e.course?.name ?? '—'}
                   </td>
                   <td className="px-6 py-4 font-medium text-gray-900">
                     {formatAmount(e.amountPaid, e.currency)}
