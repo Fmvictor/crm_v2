@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -32,9 +32,11 @@ export function CourseForm({ open, onClose, course }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } =
-    useForm<FormData>({
-      resolver: zodResolver(schema),
-      defaultValues: course
+    useForm<FormData>({ resolver: zodResolver(schema) });
+
+  useEffect(() => {
+    if (open) {
+      reset(course
         ? {
             name: course.name,
             startDate: course.startDate?.slice(0, 10) ?? '',
@@ -42,8 +44,10 @@ export function CourseForm({ open, onClose, course }: Props) {
             price: course.price != null ? String(course.price) : '',
             description: course.description ?? '',
           }
-        : {},
-    });
+        : { name: '', startDate: '', durationDays: '', price: '', description: '' }
+      );
+    }
+  }, [open, course, reset]);
 
   const mutation = useMutation({
     mutationFn: (data: FormData) => {
