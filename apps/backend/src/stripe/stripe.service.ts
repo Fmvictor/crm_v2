@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike } from 'typeorm';
+import { Repository, ILike, IsNull } from 'typeorm';
 import Stripe from 'stripe';
 import { Contact, ContactSource, ContactStatus } from '../contacts/entities/contact.entity';
 import { Course, CourseStatus } from '../courses/entities/course.entity';
@@ -9,6 +9,7 @@ import {
   EnrollmentStatus,
   PaymentStatus,
 } from '../enrollments/entities/enrollment.entity';
+import { CourseSession } from './entities/course-session.entity';
 import { AutomationsService } from '../automations/automations.service';
 import { AutomationTrigger } from '../automations/entities/automation.entity';
 
@@ -24,6 +25,8 @@ export class StripeService {
     private readonly coursesRepo: Repository<Course>,
     @InjectRepository(Enrollment)
     private readonly enrollmentsRepo: Repository<Enrollment>,
+    @InjectRepository(CourseSession)
+    private readonly courseSessionsRepo: Repository<CourseSession>,
     private readonly automationsService: AutomationsService,
   ) {
     this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '');
@@ -80,7 +83,6 @@ export class StripeService {
       contact = await this.contactsRepo.save(contact);
       this.logger.log(`Contacto creado: ${contact.email}`);
     } else {
-      // Actualizar datos si estaban vacíos
       const updates: Partial<Contact> = {};
       if (!contact.phone && billing.phone) updates.phone = billing.phone;
       if (!contact.address && billing.address?.line1) updates.address = billing.address.line1;
@@ -101,19 +103,25 @@ export class StripeService {
     const courseDateRaw = metadata['course_date'] ?? null;
     const courseDate = courseDateRaw ? new Date(courseDateRaw) : null;
 
-    // Buscar por nombre + fecha (misma edición)
+    // Intentar encontrar el curso existente en BD
     let course: Course | null = null;
+    let courseWasFound = false;
+
     if (courseDate) {
       course = await this.coursesRepo.findOne({
         where: { name: ILike(`%${courseCode}%`), startDate: courseDate },
       });
-    } else {
+    }
+    if (!course) {
       course = await this.coursesRepo.findOne({
         where: { name: ILike(`%${courseCode}%`) },
       });
     }
 
-    if (!course) {
+    if (course) {
+      courseWasFound = true;
+      this.logger.log(`Curso encontrado en BD: ${course.name}`);
+    } else {
       course = this.coursesRepo.create({
         name: courseCode,
         status: CourseStatus.ACTIVE,
@@ -123,7 +131,7 @@ export class StripeService {
       this.logger.log(`Curso creado automáticamente: ${courseCode} (${courseDateRaw ?? 'sin fecha'})`);
     }
 
-    // --- Inscripción ---
+    // --- Inscripción individual (comportamiento existente) ---
     const amountPaid = paymentIntent.amount_received / 100;
 
     const existingEnrollment = await this.enrollmentsRepo.findOne({
@@ -131,7 +139,6 @@ export class StripeService {
     });
 
     if (existingEnrollment) {
-      // Actualizar pago si ya existía la inscripción
       await this.enrollmentsRepo.update(existingEnrollment.id, {
         stripePaymentId: paymentId,
         amountPaid,
@@ -158,10 +165,77 @@ export class StripeService {
       this.logger.log(`Inscripción creada para ${contact.email} en ${course.name}`);
     }
 
+    // --- Ficha grupal (solo si el curso ya existía en BD) ---
+    if (courseWasFound) {
+      await this.upsertCourseSession({
+        course,
+        courseDate,
+        studentName: name,
+        studentEmail: email ?? null,
+        contactId: contact.id,
+        stripePaymentId: paymentId,
+      });
+    }
+
     // Disparar automatizaciones
     await this.automationsService.executeForTrigger(
       AutomationTrigger.PAYMENT_CAPTURED,
       { contact, course, amountPaid, currency: paymentIntent.currency },
     );
+  }
+
+  private async upsertCourseSession(params: {
+    course: Course;
+    courseDate: Date | null;
+    studentName: string;
+    studentEmail: string | null;
+    contactId: string;
+    stripePaymentId: string;
+  }): Promise<void> {
+    const { course, courseDate, studentName, studentEmail, contactId, stripePaymentId } = params;
+
+    // Buscar ficha existente para esta edición del curso
+    let session = courseDate
+      ? await this.courseSessionsRepo.findOne({
+          where: { courseId: course.id, startDate: courseDate },
+        })
+      : await this.courseSessionsRepo.findOne({
+          where: { courseId: course.id, startDate: IsNull() },
+        });
+
+    const newStudent = {
+      name: studentName,
+      email: studentEmail,
+      contactId,
+      stripePaymentId,
+      enrolledAt: new Date().toISOString(),
+    };
+
+    if (session) {
+      // Idempotencia: no añadir si ya está el mismo stripePaymentId
+      const alreadyIn = session.students.some((s) => s.stripePaymentId === stripePaymentId);
+      if (alreadyIn) {
+        this.logger.log(`Alumno ya en ficha grupal (${session.id}), ignorando`);
+        return;
+      }
+      session.students = [...session.students, newStudent];
+      await this.courseSessionsRepo.save(session);
+      this.logger.log(`Alumno añadido a ficha grupal ${session.id}: ${studentName}`);
+    } else {
+      session = this.courseSessionsRepo.create({
+        courseId: course.id,
+        courseName: course.name,
+        startDate: courseDate,
+        students: [newStudent],
+      });
+      await this.courseSessionsRepo.save(session);
+      this.logger.log(`Ficha grupal creada para ${course.name}: ${studentName}`);
+    }
+  }
+
+  async findAllSessions(): Promise<CourseSession[]> {
+    return this.courseSessionsRepo.find({
+      order: { createdAt: 'DESC' },
+    });
   }
 }

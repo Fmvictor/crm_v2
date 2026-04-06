@@ -1,15 +1,19 @@
 import {
   Controller,
+  Get,
   Post,
   Headers,
   Req,
   HttpCode,
   BadRequestException,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
 import Stripe from 'stripe';
 import { StripeService } from './stripe.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CourseSession } from './entities/course-session.entity';
 
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
@@ -49,5 +53,11 @@ export class StripeController {
     }
 
     return { received: true };
+  }
+
+  @Get('course-sessions')
+  @UseGuards(JwtAuthGuard)
+  async getCourseSessions(): Promise<CourseSession[]> {
+    return this.stripeService.findAllSessions();
   }
 }
