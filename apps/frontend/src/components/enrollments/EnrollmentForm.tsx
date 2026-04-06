@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,9 +26,10 @@ interface Props {
   onClose: () => void;
   enrollment?: Enrollment;
   preselectedContactId?: string;
+  preselectedCourseId?: string;
 }
 
-export function EnrollmentForm({ open, onClose, enrollment, preselectedContactId }: Props) {
+export function EnrollmentForm({ open, onClose, enrollment, preselectedContactId, preselectedCourseId }: Props) {
   const qc = useQueryClient();
   const isEdit = !!enrollment;
 
@@ -58,11 +60,25 @@ export function EnrollmentForm({ open, onClose, enrollment, preselectedContactId
           }
         : {
             contactId: preselectedContactId ?? '',
-            courseId: '',
+            courseId: preselectedCourseId ?? '',
             status: 'pending',
             paymentStatus: 'pending',
           },
     });
+
+  useEffect(() => {
+    if (open && !enrollment) {
+      reset({
+        contactId: preselectedContactId ?? '',
+        courseId: preselectedCourseId ?? '',
+        status: 'pending',
+        paymentStatus: 'pending',
+        amountTotal: '',
+        amountPaid: '',
+        notes: '',
+      });
+    }
+  }, [open, preselectedContactId, preselectedCourseId, enrollment]);
 
   const mutation = useMutation({
     mutationFn: (data: FormData) => {
@@ -81,6 +97,7 @@ export function EnrollmentForm({ open, onClose, enrollment, preselectedContactId
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['enrollments'] });
+      qc.invalidateQueries({ queryKey: ['course-sessions'] });
       reset();
       onClose();
     },
@@ -105,7 +122,7 @@ export function EnrollmentForm({ open, onClose, enrollment, preselectedContactId
         </Field>
 
         <Field label="Curso" required error={errors.courseId?.message}>
-          <select {...register('courseId')} className={selectClass} disabled={isEdit}>
+          <select {...register('courseId')} className={selectClass} disabled={isEdit || !!preselectedCourseId}>
             <option value="">Selecciona un curso...</option>
             {courses?.data.map((c) => (
               <option key={c.id} value={c.id}>
