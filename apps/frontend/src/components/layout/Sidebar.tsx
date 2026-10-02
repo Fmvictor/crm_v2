@@ -13,6 +13,7 @@ import {
   CreditCard,
   Zap,
   Database,
+  Kanban,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,7 @@ const nav = [
   { href: '/courses', label: 'Cursos', icon: BookOpen },
   { href: '/enrollments', label: 'Inscripciones', icon: ClipboardList },
   { href: '/interactions', label: 'Interacciones', icon: MessageSquare },
+  { href: '/pipeline', label: 'Pipeline WhatsApp', icon: Kanban },
   { href: '/pagos', label: 'Pagos', icon: CreditCard },
   { href: '/automatizaciones', label: 'Automatizaciones', icon: Zap },
   { href: '/database', label: 'Base de datos', icon: Database },

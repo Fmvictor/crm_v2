@@ -36,6 +36,7 @@ export class WhatsAppController {
   @HttpCode(200)
   @Post('webhook')
   handleWebhook(@Body() body: any) {
-    return this.whatsAppService.handleWebhook(body);
+    void this.whatsAppService.handleWebhook(body);
+    return { received: true };
   }
 }

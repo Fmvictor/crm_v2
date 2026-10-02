@@ -14,6 +14,7 @@ export interface AuthResponse {
 }
 
 export type ContactStatus = 'new' | 'contacted' | 'qualified' | 'enrolled' | 'lost';
+export type PipelineStage = 'new' | 'contacted' | 'qualified' | 'call_scheduled' | 'call_done' | 'offer_sent' | 'deposit_requested' | 'deposit_paid' | 'enrolled' | 'nurture' | 'lost';
 export type ContactSource = 'whatsapp' | 'web' | 'referral' | 'social' | 'other';
 
 export interface Contact {
@@ -22,6 +23,7 @@ export interface Contact {
   email: string | null;
   phone: string | null;
   status: ContactStatus;
+  pipelineStage: PipelineStage;
   source: ContactSource;
   courseInterest: string | null;
   notes: string | null;
@@ -106,4 +108,41 @@ export interface Interaction {
   createdBy: User | null;
   createdById: string | null;
   createdAt: string;
+}
+
+export type ConversationAiMode = 'auto' | 'paused' | 'human';
+
+export interface ConversationMessage {
+  id: string;
+  direction: 'inbound' | 'outbound';
+  actor: 'lead' | 'ai' | 'agent' | 'system';
+  body: string;
+  messageType: string;
+  createdAt: string;
+}
+
+export interface PipelineEvent {
+  id: string;
+  fromStage: PipelineStage | null;
+  toStage: PipelineStage;
+  actor: 'ai' | 'agent' | 'system';
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  externalContactKey: string;
+  pipelineStage: PipelineStage;
+  aiMode: ConversationAiMode;
+  language: string | null;
+  optInAt: string | null;
+  optOutAt: string | null;
+  nextFollowUpAt: string | null;
+  handoffReason: string | null;
+  aiSummary: string | null;
+  contact: Contact;
+  messages?: ConversationMessage[];
+  pipelineEvents?: PipelineEvent[];
+  updatedAt: string;
 }

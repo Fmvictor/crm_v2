@@ -2,6 +2,10 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ContactsService } from '../contacts/contacts.service';
 import { InteractionsService } from '../interactions/interactions.service';
 import { InteractionDirection, InteractionType } from '../interactions/entities/interaction.entity';
+import { ConversationsService } from '../conversations/conversations.service';
+import { Conversation } from '../conversations/entities/conversation.entity';
+import { ConversationMessageActor, ConversationMessageDirection } from '../conversations/entities/conversation-message.entity';
+import { AiQueueService } from '../ai/ai-queue.service';
 
 export interface SendTemplateOptions {
   to: string;
@@ -15,13 +19,13 @@ export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
 
   constructor(
-    @Inject(forwardRef(() => ContactsService))
-    private readonly contactsService: ContactsService,
-    @Inject(forwardRef(() => InteractionsService))
-    private readonly interactionsService: InteractionsService,
+    @Inject(forwardRef(() => ContactsService)) private readonly contactsService: ContactsService,
+    @Inject(forwardRef(() => InteractionsService)) private readonly interactionsService: InteractionsService,
+    @Inject(forwardRef(() => ConversationsService)) private readonly conversationsService: ConversationsService,
+    @Inject(forwardRef(() => AiQueueService)) private readonly aiQueueService: AiQueueService,
   ) {}
 
-  async sendTemplate(options: SendTemplateOptions): Promise<void> {
+  async sendTemplate(options: SendTemplateOptions, actor: ConversationMessageActor = ConversationMessageActor.SYSTEM): Promise<void> {
     const { to, templateName, languageCode = 'es', params = [] } = options;
 
     const apiUrl = process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
@@ -70,12 +74,21 @@ export class WhatsAppService {
       throw new Error(`WhatsApp API error ${res.status}: ${error}`);
     }
 
+    const responsePayload = await res.clone().json().catch(() => ({})) as { messages?: Array<{ id?: string }> };
     this.logger.log(`WhatsApp enviado a ${phone} con plantilla "${templateName}"`);
 
     // Log internally as interaction
     try {
       const contact = await this.contactsService.findOneByPhone(phone);
       if (contact) {
+        const conversation = await this.conversationsService.findOrCreate(contact, phone);
+        await this.conversationsService.recordMessage(conversation, {
+          externalMessageId: responsePayload.messages?.[0]?.id ?? null,
+          direction: ConversationMessageDirection.OUTBOUND,
+          actor,
+          body: `[Plantilla WhatsApp: ${templateName}]`,
+          messageType: 'template',
+        });
         await this.interactionsService.createSystemInteraction({
           contactId: contact.id,
           type: InteractionType.WHATSAPP,
@@ -88,7 +101,7 @@ export class WhatsAppService {
     }
   }
 
-  async sendText(to: string, text: string): Promise<void> {
+  async sendText(to: string, text: string, actor: ConversationMessageActor = ConversationMessageActor.SYSTEM): Promise<void> {
     const apiUrl = process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
     const token = process.env.WHATSAPP_API_TOKEN ?? '';
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
@@ -119,11 +132,20 @@ export class WhatsAppService {
       throw new Error(`WhatsApp API error ${res.status}: ${error}`);
     }
 
+    const responsePayload = await res.clone().json().catch(() => ({})) as { messages?: Array<{ id?: string }> };
     this.logger.log(`WhatsApp texto enviado a ${phone}`);
 
     try {
       const contact = await this.contactsService.findOneByPhone(phone);
       if (contact) {
+        const conversation = await this.conversationsService.findOrCreate(contact, phone);
+        await this.conversationsService.recordMessage(conversation, {
+          externalMessageId: responsePayload.messages?.[0]?.id ?? null,
+          direction: ConversationMessageDirection.OUTBOUND,
+          actor,
+          body: text,
+          messageType: 'text',
+        });
         await this.interactionsService.createSystemInteraction({
           contactId: contact.id,
           type: InteractionType.WHATSAPP,
@@ -195,7 +217,8 @@ export class WhatsAppService {
             // Determinar dirección: si el 'from' es nuestro número, es saliente sync (echo)
             const isOutbound = !!(displayPhone && (msgFromClean === displayPhone));
             const targetPhone = isOutbound ? (msg as any).to : from;
-            const direction = isOutbound ? InteractionDirection.OUTBOUND : InteractionDirection.INBOUND;
+            const direction = isOutbound ? ConversationMessageDirection.OUTBOUND : ConversationMessageDirection.INBOUND;
+            const interactionDirection = isOutbound ? InteractionDirection.OUTBOUND : InteractionDirection.INBOUND;
             
             const text = msg.text?.body || msg.button?.text || `[Mensaje tipo: ${msg.type}]`;
             
@@ -208,7 +231,7 @@ export class WhatsAppService {
 
             let contact = await this.contactsService.findOneByPhone(targetPhone);
             
-            if (!contact && direction === InteractionDirection.INBOUND) {
+            if (!contact && direction === ConversationMessageDirection.INBOUND) {
               this.logger.log(`Contacto no encontrado para ${targetPhone}, creando automáticamente...`);
               contact = await this.contactsService.create({
                 name: `Nuevo Contacto (WA ${targetPhone.slice(-4)})`,
@@ -219,13 +242,26 @@ export class WhatsAppService {
             }
 
             if (contact) {
+              const conversation = await this.conversationsService.findOrCreate(contact, targetPhone);
+              await this.conversationsService.recordMessage(conversation, {
+                externalMessageId: msg.id ?? null,
+                direction,
+                actor: isOutbound ? ConversationMessageActor.SYSTEM : ConversationMessageActor.LEAD,
+                body: text,
+                messageType: msg.type ?? 'text',
+                metadata: { provider: 'meta', messageType: msg.type ?? 'text' },
+                providerTimestamp: msg.timestamp ? new Date(Number(msg.timestamp) * 1000) : null,
+              });
               this.logger.log(`Guardando interacción WA para contacto: ${contact.name} (${contact.id})`);
               await this.interactionsService.createSystemInteraction({
                 contactId: contact.id,
                 type: InteractionType.WHATSAPP,
-                direction,
+                direction: interactionDirection,
                 notes: text,
               });
+              if (!isOutbound && process.env.AI_WHATSAPP_ENABLED === 'true') {
+                await this.aiQueueService.enqueue(conversation.id);
+              }
               this.logger.log('Interacción WA guardada correctamente');
             } else {
               this.logger.warn(`Mensaje WA de ${targetPhone} ignorado (sin contacto y no es entrante)`);
@@ -236,5 +272,18 @@ export class WhatsAppService {
         }
       }
     }
+  }
+
+  async sendConfiguredFollowUp(conversation: Conversation): Promise<boolean> {
+    const step = conversation.followUpStep + 1;
+    const templateName = process.env[`WHATSAPP_FOLLOWUP_TEMPLATE_D${[1, 3, 7, 14][step - 1]}`];
+    if (!templateName || !conversation.contact?.phone) return false;
+    await this.sendTemplate({
+      to: conversation.contact.phone,
+      templateName,
+      languageCode: conversation.language || 'es',
+      params: [conversation.contact.name],
+    }, ConversationMessageActor.SYSTEM);
+    return true;
   }
 }

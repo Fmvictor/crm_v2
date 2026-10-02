@@ -12,6 +12,9 @@ import { InteractionsModule } from './interactions/interactions.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { StripeModule } from './stripe/stripe.module';
 import { AutomationsModule } from './automations/automations.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { ConversationsModule } from './conversations/conversations.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -29,6 +32,9 @@ import { AutomationsModule } from './automations/automations.module';
     EnrollmentsModule,
     StripeModule,
     AutomationsModule,
+    WhatsAppModule,
+    ConversationsModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [AppService],
