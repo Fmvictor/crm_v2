@@ -30,10 +30,15 @@ export const PIPELINE_STAGES = Object.values(PipelineStage);
 
 export function mapLegacyStatus(status: string): PipelineStage {
   switch (status) {
-    case 'contacted': return PipelineStage.CONTACTED;
-    case 'qualified': return PipelineStage.QUALIFIED;
-    case 'enrolled': return PipelineStage.ENROLLED;
-    case 'lost': return PipelineStage.LOST;
-    default: return PipelineStage.NEW;
+    case 'contacted':
+      return PipelineStage.CONTACTED;
+    case 'qualified':
+      return PipelineStage.QUALIFIED;
+    case 'enrolled':
+      return PipelineStage.ENROLLED;
+    case 'lost':
+      return PipelineStage.LOST;
+    default:
+      return PipelineStage.NEW;
   }
 }

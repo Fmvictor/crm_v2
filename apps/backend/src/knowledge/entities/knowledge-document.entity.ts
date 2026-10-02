@@ -1,9 +1,22 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
-export enum KnowledgeDocumentStatus { DRAFT = 'draft', APPROVED = 'approved', ARCHIVED = 'archived' }
+export enum KnowledgeDocumentStatus {
+  DRAFT = 'draft',
+  APPROVED = 'approved',
+  ARCHIVED = 'archived',
+}
 
 @Entity('knowledge_documents')
-@Index('IDX_knowledge_documents_slug_version', ['slug', 'version'], { unique: true })
+@Index('IDX_knowledge_documents_slug_version', ['slug', 'version'], {
+  unique: true,
+})
 export class KnowledgeDocument {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -26,7 +39,12 @@ export class KnowledgeDocument {
   @Column({ type: 'int', default: 1 })
   version: number;
 
-  @Column({ type: 'enum', enum: KnowledgeDocumentStatus, enumName: 'knowledge_document_status_enum', default: KnowledgeDocumentStatus.DRAFT })
+  @Column({
+    type: 'enum',
+    enum: KnowledgeDocumentStatus,
+    enumName: 'knowledge_document_status_enum',
+    default: KnowledgeDocumentStatus.DRAFT,
+  })
   status: KnowledgeDocumentStatus;
 
   @Column({ type: 'timestamptz', nullable: true })
