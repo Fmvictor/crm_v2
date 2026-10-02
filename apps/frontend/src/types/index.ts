@@ -25,6 +25,9 @@ export interface Contact {
   phone: string | null;
   status: ContactStatus;
   notes: string | null;
+  botPaused: boolean;
+  botMemory: string | null;
+  botMemoryExpiresAt: string | null;
   assignedTo: User | null;
   createdAt: string;
   updatedAt: string;
@@ -45,5 +48,25 @@ export interface Interaction {
   contact: Contact;
   contactId: string;
   createdBy: User | null;
+  createdAt: string;
+}
+
+export interface BotJob {
+  id: string;
+  contactId: string;
+  status: "pending" | "processing" | "draft" | "sent" | "needs_human" | "resolved" | "failed";
+  answer: string | null;
+  reason: string | null;
+  sourceUrl: string | null;
+  sourceFetchedAt: string | null;
+  createdAt: string;
+}
+
+export interface BotLearning {
+  id: string;
+  status: "pending" | "approved" | "rejected";
+  category: "style" | "process";
+  approvedText: string | null;
+  interaction: Interaction;
   createdAt: string;
 }

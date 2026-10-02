@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { Contact, Interaction, PaginatedResult } from "@/types";
 import { ContactForm } from "@/components/contacts/ContactForm";
 import { WhatsAppTemplateForm } from "@/components/whatsapp/WhatsAppTemplateForm";
+import { BotConversationPanel } from "@/components/whatsapp/BotConversationPanel";
 
 const statusLabels: Record<Contact["status"], string> = {
   new: "Nuevo",
@@ -194,6 +195,7 @@ export default function ContactDetailPage({
         </section>
 
         <aside className="space-y-4">
+          <BotConversationPanel contact={contact} onUseDraft={setMessage} />
           <WhatsAppTemplateForm
             contactId={contact.id}
             phone={contact.phone ?? ""}

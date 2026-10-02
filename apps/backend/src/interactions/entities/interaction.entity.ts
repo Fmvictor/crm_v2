@@ -19,6 +19,13 @@ export enum InteractionDirection {
   OUTBOUND = 'outbound',
 }
 
+export enum InteractionSource {
+  CUSTOMER = 'customer',
+  HUMAN = 'human',
+  BOT = 'bot',
+  SYSTEM = 'system',
+}
+
 @Entity('interactions')
 export class Interaction {
   @PrimaryGeneratedColumn('uuid')
@@ -37,6 +44,18 @@ export class Interaction {
 
   @Column({ type: 'text' })
   notes: string;
+
+  @Column({ type: 'varchar', length: 255, unique: true, nullable: true })
+  externalMessageId: string | null;
+
+  @Column({ type: 'varchar', length: 16, default: InteractionSource.SYSTEM })
+  source: InteractionSource;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  messageTimestamp: Date | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  deliveryStatus: string | null;
 
   @ManyToOne(() => Contact, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'contactId' })

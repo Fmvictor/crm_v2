@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike } from 'typeorm';
+import { Repository, ILike, EntityManager, LessThan } from 'typeorm';
 import { Contact } from './entities/contact.entity';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
@@ -103,6 +103,33 @@ export class ContactsService {
       .getOne();
   }
 
+  async findOrCreateWhatsApp(phone: string, name?: string): Promise<Contact> {
+    const cleanPhone = this.normalizePhone(phone);
+    if (cleanPhone.length < 7)
+      throw new NotFoundException('Teléfono de WhatsApp inválido');
+    return this.contactsRepo.manager.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        cleanPhone,
+      ]);
+      const lastDigits = cleanPhone.slice(-9);
+      const repo = manager.getRepository(Contact);
+      const existing = await repo
+        .createQueryBuilder('contact')
+        .where(
+          "REPLACE(REPLACE(REPLACE(REPLACE(contact.phone, ' ', ''), '-', ''), '(', ''), ')', '') ILIKE :search",
+          { search: `%${lastDigits}` },
+        )
+        .getOne();
+      if (existing) return existing;
+      return repo.save(
+        repo.create({
+          name: name?.trim() || `Nuevo contacto (WA ${cleanPhone.slice(-4)})`,
+          phone: cleanPhone,
+        }),
+      );
+    });
+  }
+
   async update(id: string, dto: UpdateContactDto): Promise<Contact> {
     const contact = await this.findOne(id);
     if (dto.phone) {
@@ -110,6 +137,63 @@ export class ContactsService {
     }
     Object.assign(contact, dto);
     return this.contactsRepo.save(contact);
+  }
+
+  async setBotPaused(id: string, paused: boolean): Promise<Contact> {
+    return this.withConversationLock(id, async (contact, manager) => {
+      contact.botPaused = paused;
+      return manager.save(contact);
+    });
+  }
+
+  async withConversationLock<T>(
+    id: string,
+    action: (contact: Contact, manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return this.contactsRepo.manager.transaction(async (manager) => {
+      const contact = await manager.getRepository(Contact).findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!contact) throw new NotFoundException(`Contacto ${id} no encontrado`);
+      return action(contact, manager);
+    });
+  }
+
+  async setBotMemory(id: string, memory: string | null): Promise<Contact> {
+    return this.withConversationLock(id, (contact, manager) => {
+      contact.botMemory = memory?.trim().slice(0, 700) || null;
+      contact.botMemoryExpiresAt = contact.botMemory
+        ? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+        : null;
+      return manager.save(contact);
+    });
+  }
+
+  async appendBotMemory(id: string, memory: string): Promise<void> {
+    const addition = memory.trim();
+    if (!addition || addition.length > 700) return;
+    await this.withConversationLock(id, async (contact, manager) => {
+      const existing =
+        contact.botMemoryExpiresAt && contact.botMemoryExpiresAt > new Date()
+          ? (contact.botMemory?.trim() ?? '')
+          : '';
+      if (existing.includes(addition)) return;
+      const combined = existing ? `${existing}\n${addition}` : addition;
+      if (combined.length > 700) return;
+      contact.botMemory = combined;
+      contact.botMemoryExpiresAt = new Date(
+        Date.now() + 90 * 24 * 60 * 60 * 1000,
+      );
+      await manager.save(contact);
+    });
+  }
+
+  async purgeExpiredBotMemory(): Promise<void> {
+    await this.contactsRepo.update(
+      { botMemoryExpiresAt: LessThan(new Date()) },
+      { botMemory: null, botMemoryExpiresAt: null },
+    );
   }
 
   async remove(id: string): Promise<void> {

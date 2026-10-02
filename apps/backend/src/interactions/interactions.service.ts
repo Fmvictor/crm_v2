@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Interaction, InteractionType } from './entities/interaction.entity';
+import {
+  Interaction,
+  InteractionDirection,
+  InteractionSource,
+  InteractionType,
+} from './entities/interaction.entity';
 import { CreateInteractionDto } from './dto/create-interaction.dto';
 import { FilterInteractionDto } from './dto/filter-interaction.dto';
 import { PaginatedResult } from '../contacts/contacts.service';
@@ -15,12 +20,86 @@ export class InteractionsService {
 
   async createSystemInteraction(
     dto: CreateInteractionDto,
+    metadata: {
+      externalMessageId?: string;
+      source?: InteractionSource;
+      messageTimestamp?: Date;
+      createdById?: string;
+    } = {},
   ): Promise<Interaction> {
     const interaction = this.interactionsRepo.create({
       ...dto,
       type: dto.type ?? InteractionType.WHATSAPP,
+      externalMessageId: metadata.externalMessageId ?? null,
+      source: metadata.source ?? InteractionSource.SYSTEM,
+      messageTimestamp: metadata.messageTimestamp ?? null,
+      createdById: metadata.createdById ?? null,
     });
     return this.interactionsRepo.save(interaction);
+  }
+
+  async createIncomingOnce(input: {
+    contactId: string;
+    notes: string;
+    externalMessageId: string;
+    messageTimestamp?: Date;
+  }): Promise<string | null> {
+    const result = await this.interactionsRepo
+      .createQueryBuilder()
+      .insert()
+      .values({
+        contactId: input.contactId,
+        type: InteractionType.WHATSAPP,
+        direction: InteractionDirection.INBOUND,
+        notes: input.notes,
+        externalMessageId: input.externalMessageId,
+        source: InteractionSource.CUSTOMER,
+        messageTimestamp: input.messageTimestamp ?? null,
+      })
+      .orIgnore()
+      .returning('id')
+      .execute();
+    return (result.raw[0]?.id as string | undefined) ?? null;
+  }
+
+  async findLatestIncoming(contactId: string): Promise<Interaction | null> {
+    return this.interactionsRepo.findOne({
+      where: {
+        contactId,
+        type: InteractionType.WHATSAPP,
+        direction: InteractionDirection.INBOUND,
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async findLatestHumanOutbound(
+    contactId: string,
+  ): Promise<Interaction | null> {
+    return this.interactionsRepo.findOne({
+      where: {
+        contactId,
+        type: InteractionType.WHATSAPP,
+        direction: InteractionDirection.OUTBOUND,
+        source: InteractionSource.HUMAN,
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async updateDeliveryStatus(
+    externalMessageId: string,
+    status: string,
+  ): Promise<void> {
+    if (
+      !externalMessageId ||
+      !['sent', 'delivered', 'read', 'failed'].includes(status)
+    )
+      return;
+    await this.interactionsRepo.update(
+      { externalMessageId },
+      { deliveryStatus: status },
+    );
   }
 
   async findAll(

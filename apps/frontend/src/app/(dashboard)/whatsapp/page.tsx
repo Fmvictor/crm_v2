@@ -5,7 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { MessageCircle } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { Interaction, PaginatedResult } from "@/types";
+import type { BotJob, Interaction, PaginatedResult } from "@/types";
+import { useAuthStore } from "@/store/auth.store";
+import { BotAdminPanel } from "@/components/whatsapp/BotAdminPanel";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("es-ES", {
@@ -18,6 +20,7 @@ function formatDate(value: string) {
 }
 
 export default function WhatsAppPage() {
+  const user = useAuthStore((state) => state.user);
   const { data, isLoading } = useQuery({
     queryKey: ["interactions", "whatsapp-inbox"],
     queryFn: () =>
@@ -25,6 +28,11 @@ export default function WhatsAppPage() {
         .get<PaginatedResult<Interaction>>("/interactions?limit=100")
         .then((response) => response.data),
     refetchInterval: 10000,
+  });
+  const { data: attention } = useQuery({
+    queryKey: ["bot-attention"],
+    queryFn: () => api.get<BotJob[]>("/whatsapp/bot/attention").then((response) => response.data),
+    refetchInterval: 5000,
   });
 
   return (
@@ -36,6 +44,20 @@ export default function WhatsAppPage() {
           Mensajes entrantes y salientes registrados desde WhatsApp Cloud API.
         </p>
       </div>
+      {user?.role === "admin" && <BotAdminPanel />}
+      {(attention?.length ?? 0) > 0 && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5" aria-label="Conversaciones pendientes del asistente">
+          <h2 className="text-base font-semibold text-amber-950">Conversaciones para revisar</h2>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {attention?.slice(0, 15).map((job) => (
+              <Link key={job.id} href={`/contacts/${job.contactId}`} className="rounded-lg border border-amber-200 bg-white p-3 text-sm hover:border-amber-400">
+                <span className="font-medium text-gray-900">{job.status === "draft" ? "Borrador listo" : "Necesita atención humana"}</span>
+                <span className="mt-1 block line-clamp-2 text-xs text-gray-600">{job.reason || job.answer}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-12 text-center text-sm text-gray-400">

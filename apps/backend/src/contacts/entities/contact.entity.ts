@@ -35,6 +35,15 @@ export class Contact {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  botPaused: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  botMemory: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  botMemoryExpiresAt: Date | null;
+
   @ManyToOne(() => User, { nullable: true, eager: false })
   @JoinColumn({ name: 'assignedToId' })
   assignedTo: User | null;

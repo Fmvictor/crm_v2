@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { InteractionsModule } from './interactions/interactions.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     ContactsModule,
     InteractionsModule,
     WhatsAppModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [AppService],
