@@ -13,12 +13,16 @@ import {
   InteractionType,
 } from '../interactions/entities/interaction.entity';
 import { ConversationsService } from '../conversations/conversations.service';
-import { Conversation } from '../conversations/entities/conversation.entity';
+import {
+  Conversation,
+  ConversationAiMode,
+} from '../conversations/entities/conversation.entity';
 import {
   ConversationMessageActor,
   ConversationMessageDirection,
 } from '../conversations/entities/conversation-message.entity';
 import { AiQueueService } from '../ai/ai-queue.service';
+import { AiGuidanceService } from '../ai/ai-guidance.service';
 
 export interface SendTemplateOptions {
   to: string;
@@ -40,6 +44,8 @@ export class WhatsAppService {
     private readonly conversationsService: ConversationsService,
     @Inject(forwardRef(() => AiQueueService))
     private readonly aiQueueService: AiQueueService,
+    @Inject(forwardRef(() => AiGuidanceService))
+    private readonly guidanceService: AiGuidanceService,
   ) {}
 
   async sendTemplate(
@@ -191,12 +197,21 @@ export class WhatsAppService {
           body: text,
           messageType: 'text',
         });
-        await this.interactionsService.createSystemInteraction({
-          contactId: contact.id,
-          type: InteractionType.WHATSAPP,
-          direction: InteractionDirection.OUTBOUND,
-          notes: text,
-        });
+        const interaction =
+          await this.interactionsService.createSystemInteraction({
+            contactId: contact.id,
+            type: InteractionType.WHATSAPP,
+            direction: InteractionDirection.OUTBOUND,
+            notes: text,
+          });
+        if (actor === ConversationMessageActor.AGENT) {
+          await this.guidanceService.captureManualResponse(interaction.id);
+          await this.conversationsService.setMode(
+            conversation.id,
+            ConversationAiMode.HUMAN,
+            'Respuesta manual del equipo',
+          );
+        }
       }
     } catch (err) {
       this.logger.error(
@@ -362,8 +377,17 @@ export class WhatsAppService {
                 type: InteractionType.WHATSAPP,
                 direction: interactionDirection,
                 notes: text,
+                externalMessageId: msg.id ?? undefined,
+                source: 'meta',
+                messageTimestamp: msg.timestamp
+                  ? new Date(Number(msg.timestamp) * 1000)
+                  : undefined,
               });
-              if (!isOutbound && process.env.AI_WHATSAPP_ENABLED === 'true') {
+              if (
+                !isOutbound &&
+                process.env.AI_WHATSAPP_ENABLED === 'true' &&
+                !(await this.guidanceService.isPaused())
+              ) {
                 await this.aiQueueService.enqueue(conversation.id);
               }
               this.logger.log('Interacción WA guardada correctamente');

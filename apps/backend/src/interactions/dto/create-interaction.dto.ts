@@ -9,7 +9,10 @@ import {
   IsString,
   IsUUID,
 } from 'class-validator';
-import { InteractionDirection, InteractionType } from '../entities/interaction.entity';
+import {
+  InteractionDirection,
+  InteractionType,
+} from '../entities/interaction.entity';
 
 export class CreateInteractionDto {
   @ApiProperty({ enum: InteractionType })
@@ -21,7 +24,9 @@ export class CreateInteractionDto {
   @IsOptional()
   direction?: InteractionDirection;
 
-  @ApiProperty({ example: 'El alumno está interesado en el curso de marketing.' })
+  @ApiProperty({
+    example: 'El alumno está interesado en el curso de marketing.',
+  })
   @IsString()
   @IsNotEmpty()
   notes: string;
@@ -40,4 +45,20 @@ export class CreateInteractionDto {
   @IsPositive()
   @IsOptional()
   durationMinutes?: number;
+
+  @IsString()
+  @IsOptional()
+  externalMessageId?: string;
+
+  @IsString()
+  @IsOptional()
+  source?: string;
+
+  @IsDateString()
+  @IsOptional()
+  messageTimestamp?: Date;
+
+  @IsString()
+  @IsOptional()
+  deliveryStatus?: string;
 }

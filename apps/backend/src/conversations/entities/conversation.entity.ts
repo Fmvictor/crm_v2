@@ -60,7 +60,7 @@ export class Conversation {
     type: 'enum',
     enum: ConversationAiMode,
     enumName: 'conversation_ai_mode_enum',
-    default: ConversationAiMode.PAUSED,
+    default: ConversationAiMode.AUTO,
   })
   aiMode: ConversationAiMode;
 

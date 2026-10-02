@@ -8,11 +8,15 @@ import {
   Query,
   Req,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { User, UserRole } from '../users/entities/user.entity';
+
+type AuthenticatedRequest = Request & { user: User };
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -26,13 +30,18 @@ export class WhatsAppController {
 
   @UseGuards(JwtAuthGuard)
   @Post('send-template')
-  sendTemplate(@Body() body: any) {
+  sendTemplate(@Req() request: AuthenticatedRequest, @Body() body: any) {
+    this.assertCanSend(request.user);
     return this.whatsAppService.sendTemplate(body);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('send-text')
-  sendText(@Body() body: { to: string; text: string }) {
+  sendText(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: { to: string; text: string },
+  ) {
+    this.assertCanSend(request.user);
     return this.whatsAppService.sendText(body.to, body.text);
   }
 
@@ -55,5 +64,10 @@ export class WhatsAppController {
     this.whatsAppService.verifyWebhookSignature(request.rawBody, signature);
     void this.whatsAppService.handleWebhook(body);
     return { received: true };
+  }
+
+  private assertCanSend(user: User) {
+    if (user.role === UserRole.VIEWER)
+      throw new ForbiddenException('No tienes permiso para enviar mensajes');
   }
 }

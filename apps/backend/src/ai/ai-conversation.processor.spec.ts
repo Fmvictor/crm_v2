@@ -14,7 +14,14 @@ describe('AiConversationProcessor', () => {
     } as any;
     const conversationsService = {
       findOne: jest.fn().mockResolvedValue(conversation),
-      getRecentMessages: jest.fn().mockResolvedValue([{ direction: ConversationMessageDirection.INBOUND, body: 'Necesito hablar con alguien' }]),
+      getRecentMessages: jest
+        .fn()
+        .mockResolvedValue([
+          {
+            direction: ConversationMessageDirection.INBOUND,
+            body: 'Necesito hablar con alguien',
+          },
+        ]),
       updateLead: jest.fn().mockResolvedValue(conversation),
       moveStage: jest.fn().mockResolvedValue(conversation),
       setMode: jest.fn().mockResolvedValue(conversation),
@@ -22,16 +29,34 @@ describe('AiConversationProcessor', () => {
     };
     const openAiService = {
       decide: jest.fn().mockResolvedValue({
-        reply: '¿Quieres que te ayude con algo más?', language: 'es', stage: 'contacted', courseInterest: null, summary: null,
-        optIn: false, optOut: false, handoff: true, handoffReason: 'Solicita una persona', followUpDays: null,
+        reply: '¿Quieres que te ayude con algo más?',
+        language: 'es',
+        stage: 'contacted',
+        courseInterest: null,
+        summary: null,
+        optIn: false,
+        optOut: false,
+        handoff: true,
+        handoffReason: 'Solicita una persona',
+        followUpDays: null,
       }),
     };
-    const webKnowledgeService = { getContext: jest.fn().mockResolvedValue('Contexto de prueba') };
-    const whatsAppService = { sendText: jest.fn().mockResolvedValue(undefined) };
+    const webKnowledgeService = {
+      getContext: jest.fn().mockResolvedValue('Contexto de prueba'),
+    };
+    const guidanceService = {
+      isPaused: jest.fn().mockResolvedValue(false),
+      getLatestInstruction: jest.fn().mockResolvedValue('Usa un tono cercano.'),
+      getApprovedExamples: jest.fn().mockResolvedValue(['Claro, te ayudo.']),
+    };
+    const whatsAppService = {
+      sendText: jest.fn().mockResolvedValue(undefined),
+    };
     const processor = new AiConversationProcessor(
       conversationsService as any,
       openAiService as any,
       webKnowledgeService as any,
+      guidanceService as any,
       whatsAppService as any,
     );
 

@@ -23,9 +23,30 @@ export class InteractionsService {
     return this.interactionsRepo.save(interaction);
   }
 
-  async createSystemInteraction(dto: CreateInteractionDto): Promise<Interaction> {
+  async createSystemInteraction(
+    dto: CreateInteractionDto,
+  ): Promise<Interaction> {
+    if (dto.externalMessageId) {
+      const existing = await this.interactionsRepo.findOne({
+        where: { externalMessageId: dto.externalMessageId },
+      });
+      if (existing) return existing;
+    }
     const interaction = this.interactionsRepo.create(dto);
-    return this.interactionsRepo.save(interaction);
+    try {
+      return await this.interactionsRepo.save(interaction);
+    } catch (error) {
+      if (
+        dto.externalMessageId &&
+        (error as { code?: string }).code === '23505'
+      ) {
+        const existing = await this.interactionsRepo.findOne({
+          where: { externalMessageId: dto.externalMessageId },
+        });
+        if (existing) return existing;
+      }
+      throw error;
+    }
   }
 
   async findAll(

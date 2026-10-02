@@ -64,7 +64,7 @@ export class ConversationsService {
       externalContactKey,
       contactId: contact.id,
       pipelineStage: stage,
-      aiMode: ConversationAiMode.PAUSED,
+      aiMode: ConversationAiMode.AUTO,
       status: ConversationStatus.OPEN,
       language: null,
       optInAt: null,
@@ -76,7 +76,16 @@ export class ConversationsService {
       handoffReason: null,
       aiSummary: null,
     });
-    conversation = await this.conversationsRepo.save(conversation);
+    try {
+      conversation = await this.conversationsRepo.save(conversation);
+    } catch (error) {
+      if ((error as { code?: string }).code !== '23505') throw error;
+      const concurrentConversation = await this.conversationsRepo.findOne({
+        where: { channel: ConversationChannel.WHATSAPP, externalContactKey },
+      });
+      if (!concurrentConversation) throw error;
+      return concurrentConversation;
+    }
     await this.eventsRepo.save(
       this.eventsRepo.create({
         conversationId: conversation.id,

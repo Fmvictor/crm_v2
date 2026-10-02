@@ -6,6 +6,7 @@ import {
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 import { Contact } from '../../contacts/entities/contact.entity';
 import { User } from '../../users/entities/user.entity';
@@ -24,9 +25,25 @@ export enum InteractionDirection {
 }
 
 @Entity('interactions')
+@Index('interactions_external_message_id_unique', ['externalMessageId'], {
+  unique: true,
+  where: '"externalMessageId" IS NOT NULL',
+})
 export class Interaction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  externalMessageId: string | null;
+
+  @Column({ type: 'varchar', length: 16, default: 'system' })
+  source: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  messageTimestamp: Date | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  deliveryStatus: string | null;
 
   @Column({ type: 'enum', enum: InteractionType })
   type: InteractionType;
