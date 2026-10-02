@@ -1,8 +1,10 @@
 import {
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Query,
+  Req,
   Patch,
   Body,
   UseGuards,
@@ -10,7 +12,9 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { User, UserRole } from '../users/entities/user.entity';
 import { ConversationsService } from './conversations.service';
 import { ConversationAiMode } from './entities/conversation.entity';
 import { PipelineEventActor } from './entities/pipeline-event.entity';
@@ -46,16 +50,6 @@ export class ConversationsController {
     });
   }
 
-  @Get('knowledge')
-  listKnowledge() {
-    return this.conversationsService.listKnowledge();
-  }
-
-  @Patch('knowledge/:id/approve')
-  approveKnowledge(@Param('id') id: string) {
-    return this.conversationsService.approveKnowledge(id);
-  }
-
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.conversationsService.findOne(id);
@@ -65,7 +59,10 @@ export class ConversationsController {
   setMode(
     @Param('id') id: string,
     @Body() body: { aiMode: ConversationAiMode; reason?: string },
+    @Req() request: Request & { user: User },
   ) {
+    this.assertCanRespond(request.user);
+    if (body.aiMode === ConversationAiMode.AUTO) this.assertAdmin(request.user);
     return this.conversationsService.setMode(id, body.aiMode, body.reason);
   }
 
@@ -73,7 +70,9 @@ export class ConversationsController {
   setStage(
     @Param('id') id: string,
     @Body() body: { stage: PipelineStage; reason?: string },
+    @Req() request: Request & { user: User },
   ) {
+    this.assertCanRespond(request.user);
     return this.conversationsService.moveStage(
       id,
       body.stage,
@@ -92,18 +91,42 @@ export class ConversationsController {
       optOut?: boolean;
       summary?: string;
     },
+    @Req() request: Request & { user: User },
   ) {
+    this.assertCanRespond(request.user);
     return this.conversationsService.updateLead(id, body);
   }
 
   @Post(':id/send')
-  async send(@Param('id') id: string, @Body() body: { text: string }) {
+  async send(
+    @Param('id') id: string,
+    @Body() body: { text: string },
+    @Req() request: Request & { user: User },
+  ) {
+    this.assertCanRespond(request.user);
     const conversation = await this.conversationsService.findOne(id);
     await this.whatsAppService.sendText(
       conversation.externalContactKey,
       body.text,
       InteractionSource.HUMAN,
+      request.user.id,
     );
     return this.conversationsService.findOne(id);
+  }
+
+  private assertCanRespond(user: User): void {
+    if (user.role === UserRole.VIEWER) {
+      throw new ForbiddenException(
+        'El usuario no puede responder conversaciones',
+      );
+    }
+  }
+
+  private assertAdmin(user: User): void {
+    if (user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'Solo un administrador puede activar respuestas automáticas',
+      );
+    }
   }
 }

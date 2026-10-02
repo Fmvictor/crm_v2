@@ -18,10 +18,6 @@ import {
   PipelineEventActor,
 } from './entities/pipeline-event.entity';
 import {
-  KnowledgeDocument,
-  KnowledgeDocumentStatus,
-} from '../knowledge/entities/knowledge-document.entity';
-import {
   mapLegacyStatus,
   PipelineStage,
 } from '../pipeline/pipeline-stage.enum';
@@ -45,8 +41,6 @@ export class ConversationsService {
     private readonly messagesRepo: Repository<ConversationMessage>,
     @InjectRepository(PipelineEvent)
     private readonly eventsRepo: Repository<PipelineEvent>,
-    @InjectRepository(KnowledgeDocument)
-    private readonly knowledgeRepo: Repository<KnowledgeDocument>,
   ) {}
 
   async findOrCreate(
@@ -59,7 +53,7 @@ export class ConversationsService {
     if (conversation) return conversation;
 
     const stage = contact.pipelineStage ?? mapLegacyStatus(contact.status);
-    conversation = this.conversationsRepo.create({
+    const candidate = this.conversationsRepo.create({
       channel: ConversationChannel.WHATSAPP,
       externalContactKey,
       contactId: contact.id,
@@ -76,17 +70,31 @@ export class ConversationsService {
       handoffReason: null,
       aiSummary: null,
     });
-    conversation = await this.conversationsRepo.save(conversation);
-    await this.eventsRepo.save(
-      this.eventsRepo.create({
-        conversationId: conversation.id,
-        fromStage: null,
-        toStage: stage,
-        actor: PipelineEventActor.SYSTEM,
-        reason: 'Conversación creada desde CRM',
-        metadata: null,
-      }),
-    );
+    let created = false;
+    try {
+      conversation = await this.conversationsRepo.save(candidate);
+      created = true;
+    } catch (error) {
+      if (!this.isConversationKeyConflict(error)) throw error;
+      conversation = await this.conversationsRepo.findOne({
+        where: { channel: ConversationChannel.WHATSAPP, externalContactKey },
+      });
+      if (!conversation) throw error;
+    }
+    contact.botPaused = conversation.aiMode !== ConversationAiMode.AUTO;
+    await this.conversationsRepo.manager.save(contact);
+    if (created) {
+      await this.eventsRepo.save(
+        this.eventsRepo.create({
+          conversationId: conversation.id,
+          fromStage: null,
+          toStage: stage,
+          actor: PipelineEventActor.SYSTEM,
+          reason: 'Conversación creada desde CRM',
+          metadata: null,
+        }),
+      );
+    }
     return conversation;
   }
 
@@ -255,6 +263,8 @@ export class ConversationsService {
       aiMode === ConversationAiMode.HUMAN
     )
       conversation.nextFollowUpAt = null;
+    conversation.contact.botPaused = aiMode !== ConversationAiMode.AUTO;
+    await this.conversationsRepo.manager.save(conversation.contact);
     return this.conversationsRepo.save(conversation);
   }
 
@@ -274,6 +284,7 @@ export class ConversationsService {
       conversation.optOutAt = new Date();
       conversation.aiMode = ConversationAiMode.PAUSED;
       conversation.nextFollowUpAt = null;
+      conversation.contact.botPaused = true;
     }
     if (fields.summary) conversation.aiSummary = fields.summary.slice(0, 5000);
     await this.conversationsRepo.manager.save(conversation.contact);
@@ -321,15 +332,12 @@ export class ConversationsService {
     return this.conversationsRepo.save(conversation);
   }
 
-  async listKnowledge(): Promise<KnowledgeDocument[]> {
-    return this.knowledgeRepo.find({ order: { slug: 'ASC', version: 'DESC' } });
-  }
-
-  async approveKnowledge(id: string): Promise<KnowledgeDocument> {
-    const document = await this.knowledgeRepo.findOne({ where: { id } });
-    if (!document) throw new NotFoundException(`Documento ${id} no encontrado`);
-    document.status = KnowledgeDocumentStatus.APPROVED;
-    document.approvedAt = new Date();
-    return this.knowledgeRepo.save(document);
+  private isConversationKeyConflict(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: unknown }).code === '23505'
+    );
   }
 }

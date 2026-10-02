@@ -5,7 +5,6 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { Conversation } from './entities/conversation.entity';
 import { ConversationMessage } from './entities/conversation-message.entity';
 import { PipelineEvent } from './entities/pipeline-event.entity';
-import { KnowledgeDocument } from '../knowledge/entities/knowledge-document.entity';
 import { ConversationsController } from './conversations.controller';
 import { ConversationsService } from './conversations.service';
 
@@ -16,7 +15,6 @@ import { ConversationsService } from './conversations.service';
       Conversation,
       ConversationMessage,
       PipelineEvent,
-      KnowledgeDocument,
     ]),
     forwardRef(() => WhatsAppModule),
   ],

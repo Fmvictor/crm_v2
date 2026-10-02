@@ -17,6 +17,7 @@ describe('ConversationsService', () => {
         (value: Record<string, unknown>): Promise<Record<string, unknown>> =>
           Promise.resolve({ id: 'conversation-id', ...value }),
       ),
+      manager: { save: jest.fn((): Promise<void> => Promise.resolve()) },
     };
     const events = {
       create: jest.fn(
@@ -28,7 +29,6 @@ describe('ConversationsService', () => {
       conversations as never,
       {} as never,
       events as never,
-      {} as never,
     );
 
     await service.findOrCreate(
