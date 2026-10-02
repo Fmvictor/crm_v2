@@ -9,5 +9,6 @@
 
 ## Punto de control
 
-- [ ] Subir la rama de integración y abrir una solicitud de cambios. La rama parte de `b74c8c2` e incluye la reestructuración local como primer commit.
+- [x] Subir la rama de integración. La rama parte de `b74c8c2` e incluye la reestructuración local como primer commit.
+- [ ] Abrir la solicitud de cambios en GitHub. La integración de Codex no tiene permiso para crearla; hace falta autorizar ese acceso o abrirla con una sesión de GitHub.
 - [ ] Validar manualmente en un entorno de prueba antes de activar envíos automáticos.
