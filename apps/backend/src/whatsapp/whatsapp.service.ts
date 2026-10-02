@@ -51,6 +51,7 @@ export class WhatsAppService {
   async sendTemplate(
     options: SendTemplateOptions,
     actor: ConversationMessageActor = ConversationMessageActor.SYSTEM,
+    createdById?: string,
   ): Promise<void> {
     const { to, templateName, languageCode = 'es', params = [] } = options;
 
@@ -129,7 +130,15 @@ export class WhatsAppService {
           type: InteractionType.WHATSAPP,
           direction: InteractionDirection.OUTBOUND,
           notes: `WhatsApp enviado (plantilla: ${templateName})`,
+          createdById,
         });
+        if (actor === ConversationMessageActor.AGENT) {
+          await this.conversationsService.setMode(
+            conversation.id,
+            ConversationAiMode.HUMAN,
+            'Respuesta manual del equipo',
+          );
+        }
       }
     } catch (err) {
       this.logger.error(
@@ -142,6 +151,7 @@ export class WhatsAppService {
     to: string,
     text: string,
     actor: ConversationMessageActor = ConversationMessageActor.SYSTEM,
+    createdById?: string,
   ): Promise<void> {
     const apiUrl =
       process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
@@ -203,6 +213,7 @@ export class WhatsAppService {
             type: InteractionType.WHATSAPP,
             direction: InteractionDirection.OUTBOUND,
             notes: text,
+            createdById,
           });
         if (actor === ConversationMessageActor.AGENT) {
           await this.guidanceService.captureManualResponse(interaction.id);
@@ -278,6 +289,7 @@ export class WhatsAppService {
 
   async handleWebhook(body: any): Promise<void> {
     this.logger.log('Webhook de WhatsApp recibido');
+    let processingFailed = false;
 
     const entries = body.entry || [];
     for (const entry of entries) {
@@ -323,7 +335,7 @@ export class WhatsAppService {
               `[Mensaje tipo: ${msg.type}]`;
 
             this.logger.log(
-              `Procesando mensaje WA ${direction} - De/A: ${targetPhone}`,
+              `Procesando mensaje WA ${direction} con id ${msg.id ?? 'sin-id'}`,
             );
 
             if (!targetPhone) {
@@ -340,15 +352,8 @@ export class WhatsAppService {
               !contact &&
               direction === ConversationMessageDirection.INBOUND
             ) {
-              this.logger.log(
-                `Contacto no encontrado para ${targetPhone}, creando automáticamente...`,
-              );
-              contact = await this.contactsService.create({
-                name: `Nuevo Contacto (WA ${targetPhone.slice(-4)})`,
-                phone: targetPhone,
-                source: 'whatsapp' as any,
-                status: 'new' as any,
-              });
+              contact =
+                await this.contactsService.findOrCreateWhatsApp(targetPhone);
             }
 
             if (contact) {
@@ -369,9 +374,7 @@ export class WhatsAppService {
                   ? new Date(Number(msg.timestamp) * 1000)
                   : null,
               });
-              this.logger.log(
-                `Guardando interacción WA para contacto: ${contact.name} (${contact.id})`,
-              );
+              this.logger.log(`Guardando interacción WA ${msg.id ?? 'sin-id'}`);
               await this.interactionsService.createSystemInteraction({
                 contactId: contact.id,
                 type: InteractionType.WHATSAPP,
@@ -393,17 +396,22 @@ export class WhatsAppService {
               this.logger.log('Interacción WA guardada correctamente');
             } else {
               this.logger.warn(
-                `Mensaje WA de ${targetPhone} ignorado (sin contacto y no es entrante)`,
+                `Mensaje WA para …${targetPhone.slice(-4)} ignorado (sin contacto y no es entrante)`,
               );
             }
           } catch (err) {
+            processingFailed = true;
             this.logger.error(
-              `Error procesando mensaje individual de WA: ${err.message}`,
-              err.stack,
+              `Error procesando mensaje WA ${msg.id ?? 'sin-id'}: ${err instanceof Error ? err.message : 'error desconocido'}`,
             );
           }
         }
       }
+    }
+    if (processingFailed) {
+      throw new Error(
+        'No se pudo persistir por completo el webhook de WhatsApp',
+      );
     }
   }
 

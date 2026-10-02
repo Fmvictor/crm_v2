@@ -110,18 +110,32 @@ export class ConversationsService {
       if (existing) return existing;
     }
 
-    const message = await this.messagesRepo.save(
-      this.messagesRepo.create({
-        conversationId: conversation.id,
-        externalMessageId: input.externalMessageId ?? null,
-        direction: input.direction,
-        actor: input.actor,
-        body: input.body,
-        messageType: input.messageType ?? 'text',
-        metadata: input.metadata ?? null,
-        providerTimestamp: input.providerTimestamp ?? null,
-      }),
-    );
+    let message: ConversationMessage;
+    try {
+      message = await this.messagesRepo.save(
+        this.messagesRepo.create({
+          conversationId: conversation.id,
+          externalMessageId: input.externalMessageId ?? null,
+          direction: input.direction,
+          actor: input.actor,
+          body: input.body,
+          messageType: input.messageType ?? 'text',
+          metadata: input.metadata ?? null,
+          providerTimestamp: input.providerTimestamp ?? null,
+        }),
+      );
+    } catch (error) {
+      if (
+        !input.externalMessageId ||
+        (error as { code?: string }).code !== '23505'
+      )
+        throw error;
+      const existing = await this.messagesRepo.findOne({
+        where: { externalMessageId: input.externalMessageId },
+      });
+      if (!existing) throw error;
+      return existing;
+    }
 
     const now = input.providerTimestamp ?? new Date();
     if (input.direction === ConversationMessageDirection.INBOUND) {
@@ -135,6 +149,33 @@ export class ConversationsService {
     }
     await this.conversationsRepo.save(conversation);
     return message;
+  }
+
+  async canAiReply(
+    conversationId: string,
+    inboundMessageId: string,
+  ): Promise<boolean> {
+    const conversation = await this.conversationsRepo.findOne({
+      where: { id: conversationId },
+    });
+    if (
+      !conversation ||
+      conversation.aiMode !== ConversationAiMode.AUTO ||
+      conversation.status !== ConversationStatus.OPEN ||
+      conversation.optOutAt ||
+      !conversation.lastInboundAt ||
+      Date.now() - conversation.lastInboundAt.getTime() > 24 * 60 * 60 * 1000
+    )
+      return false;
+    const [latestMessage] = await this.messagesRepo.find({
+      where: { conversationId },
+      order: { createdAt: 'DESC' },
+      take: 1,
+    });
+    return (
+      latestMessage?.id === inboundMessageId &&
+      latestMessage.direction === ConversationMessageDirection.INBOUND
+    );
   }
 
   async findAll(options: {

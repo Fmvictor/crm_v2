@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { Repository } from 'typeorm';
@@ -34,14 +39,23 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
     { path: '/cursos/cmb1', refreshMs: 48 * 60 * 60_000 },
     { path: '/cursos/constructor-de-ruedas', refreshMs: 48 * 60 * 60_000 },
     { path: '/cursos/formacion-a-medida', refreshMs: 48 * 60 * 60_000 },
-    { path: '/cursos/libro-mecanica-de-bicicletas', refreshMs: 48 * 60 * 60_000 },
+    {
+      path: '/cursos/libro-mecanica-de-bicicletas',
+      refreshMs: 48 * 60 * 60_000,
+    },
     { path: '/cursos/mecanica-1', refreshMs: 48 * 60 * 60_000 },
     { path: '/cursos/mecanica-2', refreshMs: 48 * 60 * 60_000 },
     { path: '/cursos/mecanica-3', refreshMs: 48 * 60 * 60_000 },
     { path: '/cursos/motores-de-ebike', refreshMs: 48 * 60 * 60_000 },
     { path: '/cursos/tecnico-en-suspensiones', refreshMs: 48 * 60 * 60_000 },
-    { path: '/cursos/tecnico-en-suspensiones-1-y-2', refreshMs: 48 * 60 * 60_000 },
-    { path: '/cursos/tecnico-en-suspensiones-pack', refreshMs: 48 * 60 * 60_000 },
+    {
+      path: '/cursos/tecnico-en-suspensiones-1-y-2',
+      refreshMs: 48 * 60 * 60_000,
+    },
+    {
+      path: '/cursos/tecnico-en-suspensiones-pack',
+      refreshMs: 48 * 60 * 60_000,
+    },
     { path: '/cursos/tecnico-en-suspensiones2', refreshMs: 48 * 60 * 60_000 },
     { path: '/cursos/transmisiones-electronicas', refreshMs: 48 * 60 * 60_000 },
   ];
@@ -56,7 +70,10 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
     // No bloquea el arranque del backend. La primera sincronización se hace en
     // segundo plano y respeta las copias locales existentes.
     void this.syncDueDocuments();
-    this.scheduler = setInterval(() => void this.syncDueDocuments(), this.schedulerIntervalMs);
+    this.scheduler = setInterval(
+      () => void this.syncDueDocuments(),
+      this.schedulerIntervalMs,
+    );
     this.scheduler.unref?.();
   }
 
@@ -66,41 +83,57 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
 
   async getContext(query: string): Promise<string> {
     const paths = this.selectPaths(query);
-    const documents = await Promise.all(paths.map((path) => this.getLocalDocument(path)));
-    const missingPaths = paths.filter((_, index) => !documents[index]);
-
-    // La primera consulta de una página sin copia local sí espera una descarga.
-    // Después, las conversaciones trabajan contra la copia persistente.
-    if (missingPaths.length > 0) {
-      await Promise.all(missingPaths.map((path) => this.syncPage(path)));
-    }
-
-    const refreshedDocuments = await Promise.all(paths.map((path) => this.getLocalDocument(path)));
-    const available = refreshedDocuments.filter((document): document is KnowledgeDocument => Boolean(document));
-    const missingAfterSync = paths.filter((_, index) => !refreshedDocuments[index]);
-    const stale = available.filter((document) => this.isDue(document));
+    // Cada respuesta consulta las páginas relevantes de emeb.es. La copia local
+    // solo permite derivar con seguridad si la web no está disponible.
+    const fetchedDocuments = await Promise.all(
+      paths.map((path) => this.syncPage(path)),
+    );
+    const fallbackDocuments = await Promise.all(
+      fetchedDocuments.map((document, index) =>
+        document
+          ? Promise.resolve(document)
+          : this.getLocalDocument(paths[index]),
+      ),
+    );
+    const available = fallbackDocuments.filter(
+      (document): document is KnowledgeDocument => Boolean(document),
+    );
+    const unavailablePaths = paths.filter(
+      (_, index) => !fetchedDocuments[index],
+    );
 
     const context = available.length
       ? available.map((document) => document.content).join('\n\n')
       : 'SISTEMA: No se ha podido cargar ninguna copia local de la información de EMEB.';
     const warnings: string[] = [];
-    if (missingAfterSync.length > 0) {
-      warnings.push(`SISTEMA: No hay copia local disponible para ${missingAfterSync.join(', ')}.`);
+    if (unavailablePaths.length > 0) {
+      warnings.push(
+        `SISTEMA: No se ha podido verificar ahora mismo ${unavailablePaths.join(', ')} en emeb.es. No confirmes fechas, precios ni plazas; deriva a una persona.`,
+      );
     }
-    if (stale.length > 0) {
-      warnings.push('SISTEMA: La copia local de alguna fuente está pendiente de actualización. No confirmes fechas, precios o plazas si la pregunta depende de esos datos.');
-      void this.syncDueDocuments();
-    }
-    return `${context}${warnings.length ? `\n\n${warnings.join('\n')}` : ''}`.slice(0, 26_000);
+    return `${context}${warnings.length ? `\n\n${warnings.join('\n')}` : ''}`.slice(
+      0,
+      26_000,
+    );
   }
 
   private selectPaths(query: string): string[] {
-    const normalized = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const normalized = query
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
     const paths = new Set<string>();
-    const asksAboutDatesOrPrice = /fecha|plaza|inicio|cuando|precio|coste|cuanto|tarifa|importe|curso/.test(normalized);
+    const asksAboutDatesOrPrice =
+      /fecha|plaza|inicio|cuando|precio|coste|cuanto|tarifa|importe|curso/.test(
+        normalized,
+      );
     const asksAboutLodging = /aloj|hotel|dormir|estancia/.test(normalized);
-    const asksAboutMethod = /metod|practica|certific|contenido|temario/.test(normalized);
-    const asksForContact = /persona|humano|llamad|contact|telefono|hablar/.test(normalized);
+    const asksAboutMethod = /metod|practica|certific|contenido|temario/.test(
+      normalized,
+    );
+    const asksForContact = /persona|humano|llamad|contact|telefono|hablar/.test(
+      normalized,
+    );
     const coursePath = this.selectCoursePath(normalized);
 
     if (coursePath) paths.add(coursePath);
@@ -123,21 +156,31 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   private selectCoursePath(normalizedQuery: string): string | null {
-    if (/cmb\s*(?:1\s*)?online|online\s+cmb/.test(normalizedQuery)) return '/cursos/cmb-online';
+    if (/cmb\s*(?:1\s*)?online|online\s+cmb/.test(normalizedQuery))
+      return '/cursos/cmb-online';
     if (/cmb\s*1|cmb1/.test(normalizedQuery)) return '/cursos/cmb1';
     if (/cmb\s*2|cmb2/.test(normalizedQuery)) return '/cursos/cmb-2-2';
     if (/bikefitting/.test(normalizedQuery)) return '/cursos/bikefitting';
-    if (/constructor.*rued|rued/.test(normalizedQuery)) return '/cursos/constructor-de-ruedas';
-    if (/mecanica\s*1|mecanica 1/.test(normalizedQuery)) return '/cursos/mecanica-1';
-    if (/mecanica\s*2|mecanica 2/.test(normalizedQuery)) return '/cursos/mecanica-2';
-    if (/mecanica\s*3|mecanica 3/.test(normalizedQuery)) return '/cursos/mecanica-3';
-    if (/motor.*ebike|ebike.*motor/.test(normalizedQuery)) return '/cursos/motores-de-ebike';
-    if (/suspension/.test(normalizedQuery)) return '/cursos/tecnico-en-suspensiones';
-    if (/transmision.*electron/.test(normalizedQuery)) return '/cursos/transmisiones-electronicas';
+    if (/constructor.*rued|rued/.test(normalizedQuery))
+      return '/cursos/constructor-de-ruedas';
+    if (/mecanica\s*1|mecanica 1/.test(normalizedQuery))
+      return '/cursos/mecanica-1';
+    if (/mecanica\s*2|mecanica 2/.test(normalizedQuery))
+      return '/cursos/mecanica-2';
+    if (/mecanica\s*3|mecanica 3/.test(normalizedQuery))
+      return '/cursos/mecanica-3';
+    if (/motor.*ebike|ebike.*motor/.test(normalizedQuery))
+      return '/cursos/motores-de-ebike';
+    if (/suspension/.test(normalizedQuery))
+      return '/cursos/tecnico-en-suspensiones';
+    if (/transmision.*electron/.test(normalizedQuery))
+      return '/cursos/transmisiones-electronicas';
     return null;
   }
 
-  private async getLocalDocument(path: string): Promise<KnowledgeDocument | null> {
+  private async getLocalDocument(
+    path: string,
+  ): Promise<KnowledgeDocument | null> {
     try {
       return await this.knowledgeRepo.findOne({
         where: {
@@ -147,7 +190,9 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
         order: { version: 'DESC' },
       });
     } catch (error) {
-      this.logger.warn(`No se pudo leer la copia local de ${path}: ${this.errorMessage(error)}`);
+      this.logger.warn(
+        `No se pudo leer la copia local de ${path}: ${this.errorMessage(error)}`,
+      );
       return null;
     }
   }
@@ -189,18 +234,20 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
         return this.knowledgeRepo.save(existing);
       }
 
-      const document = existing ?? this.knowledgeRepo.create({
-        slug,
-        title: `EMEB ${path.replace(/^\//, '')}`,
-        sourceUrl: `https://www.emeb.es${path}`,
-        content: '',
-        version: 0,
-        status: KnowledgeDocumentStatus.APPROVED,
-        fetchedAt: null,
-        approvedAt: null,
-        contentHash: null,
-        lastCheckedAt: null,
-      });
+      const document =
+        existing ??
+        this.knowledgeRepo.create({
+          slug,
+          title: `EMEB ${path.replace(/^\//, '')}`,
+          sourceUrl: `https://www.emeb.es${path}`,
+          content: '',
+          version: 0,
+          status: KnowledgeDocumentStatus.APPROVED,
+          fetchedAt: null,
+          approvedAt: null,
+          contentHash: null,
+          lastCheckedAt: null,
+        });
       document.content = content;
       document.contentHash = contentHash;
       document.version = (document.version || 0) + 1;
@@ -209,10 +256,14 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
       document.approvedAt = checkedAt;
       document.lastCheckedAt = checkedAt;
       const saved = await this.knowledgeRepo.save(document);
-      this.logger.log(`${existing ? 'Actualizada' : 'Creada'} copia local de ${path} (versión ${saved.version})`);
+      this.logger.log(
+        `${existing ? 'Actualizada' : 'Creada'} copia local de ${path} (versión ${saved.version})`,
+      );
       return saved;
     } catch (error) {
-      this.logger.warn(`No se pudo actualizar ${path}; se conserva la última copia válida: ${this.errorMessage(error)}`);
+      this.logger.warn(
+        `No se pudo actualizar ${path}; se conserva la última copia válida: ${this.errorMessage(error)}`,
+      );
       return null;
     }
   }
@@ -221,8 +272,12 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
     const path = document.slug.replace(/^emeb-web:/, '');
     const definition = this.pages.find((page) => page.path === path);
     if (!definition) return true;
-    const lastCheckedAt = document.lastCheckedAt ?? document.fetchedAt ?? document.createdAt;
-    return !lastCheckedAt || Date.now() - lastCheckedAt.getTime() >= definition.refreshMs;
+    const lastCheckedAt =
+      document.lastCheckedAt ?? document.fetchedAt ?? document.createdAt;
+    return (
+      !lastCheckedAt ||
+      Date.now() - lastCheckedAt.getTime() >= definition.refreshMs
+    );
   }
 
   private slugFor(path: string): string {

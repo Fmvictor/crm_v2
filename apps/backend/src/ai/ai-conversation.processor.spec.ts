@@ -14,18 +14,18 @@ describe('AiConversationProcessor', () => {
     } as any;
     const conversationsService = {
       findOne: jest.fn().mockResolvedValue(conversation),
-      getRecentMessages: jest
-        .fn()
-        .mockResolvedValue([
-          {
-            direction: ConversationMessageDirection.INBOUND,
-            body: 'Necesito hablar con alguien',
-          },
-        ]),
+      getRecentMessages: jest.fn().mockResolvedValue([
+        {
+          id: 'inbound-id',
+          direction: ConversationMessageDirection.INBOUND,
+          body: 'Necesito hablar con alguien',
+        },
+      ]),
       updateLead: jest.fn().mockResolvedValue(conversation),
       moveStage: jest.fn().mockResolvedValue(conversation),
       setMode: jest.fn().mockResolvedValue(conversation),
       scheduleFollowUp: jest.fn().mockResolvedValue(conversation),
+      canAiReply: jest.fn().mockResolvedValue(true),
     };
     const openAiService = {
       decide: jest.fn().mockResolvedValue({

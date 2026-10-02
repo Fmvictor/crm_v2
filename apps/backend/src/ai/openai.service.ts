@@ -155,6 +155,14 @@ export class OpenAiService {
           .replace(/[\u0300-\u036f]/g, ''),
       );
 
+    if (humanOnlyRequest) {
+      return {
+        ...decision,
+        handoff: true,
+        handoffReason: 'Gestión que requiere atención humana',
+      };
+    }
+
     // El modelo puede ser conservador y devolver handoff=true aunque tenga
     // una fuente válida. Para información comercial verificable, el backend
     // obliga a continuar la conversación automática.

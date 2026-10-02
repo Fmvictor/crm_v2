@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, ChevronRight, MessageCircle, Pause, Play, Send, UserRound } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { Conversation, ConversationAiMode, PaginatedResult, PipelineStage } from '@/types';
+import type { AiGuidanceConfiguration, AiLearning, Conversation, ConversationAiMode, PaginatedResult, PipelineStage } from '@/types';
+import { useAuthStore } from '@/store/auth.store';
 
 const stages: { id: PipelineStage; label: string; color: string }[] = [
   { id: 'new', label: 'Nuevo', color: 'border-gray-300' },
@@ -26,8 +27,77 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
+function AiGuidancePanel() {
+  const qc = useQueryClient();
+  const [instruction, setInstruction] = useState('');
+  const { data: configuration } = useQuery({
+    queryKey: ['ai-guidance'],
+    queryFn: () => api.get<AiGuidanceConfiguration>('/ai-guidance').then((response) => response.data),
+  });
+  const { data: learnings = [] } = useQuery({
+    queryKey: ['ai-learnings', 'pending'],
+    queryFn: () => api.get<AiLearning[]>('/ai-guidance/learnings?status=pending').then((response) => response.data),
+  });
+  useEffect(() => setInstruction(configuration?.instruction ?? ''), [configuration?.instruction]);
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['ai-guidance'] });
+    qc.invalidateQueries({ queryKey: ['ai-learnings'] });
+  };
+  const saveInstruction = useMutation({
+    mutationFn: () => api.post('/ai-guidance/instructions', { text: instruction }),
+    onSuccess: refresh,
+  });
+  const setPaused = useMutation({
+    mutationFn: (paused: boolean) => api.post('/ai-guidance/paused', { paused }),
+    onSuccess: refresh,
+  });
+  const reviewLearning = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'approved' | 'rejected' }) => api.patch(`/ai-guidance/learnings/${id}`, { status }),
+    onSuccess: refresh,
+  });
+
+  return (
+    <section className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Configuración de la IA</h2>
+          <p className="mt-1 text-xs text-gray-500">Los datos de cursos se verifican siempre en emeb.es. Las respuestas manuales requieren aprobación antes de usarse como ejemplo.</p>
+        </div>
+        <button
+          onClick={() => setPaused.mutate(!configuration?.paused)}
+          disabled={setPaused.isPending || !configuration}
+          className={cn('rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-50', configuration?.paused ? 'bg-green-600 text-white' : 'bg-amber-100 text-amber-800')}
+        >
+          {configuration?.paused ? 'Activar respuestas automáticas' : 'Pausar respuestas automáticas'}
+        </button>
+      </div>
+      <div className="mt-4 flex gap-2">
+        <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="Instrucciones para el asistente…" className="min-h-20 flex-1 rounded-lg border px-3 py-2 text-sm" />
+        <button onClick={() => saveInstruction.mutate()} disabled={!instruction.trim() || saveInstruction.isPending} className="self-end rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">Guardar</button>
+      </div>
+      {learnings.length > 0 && (
+        <div className="mt-4 border-t pt-3">
+          <h3 className="text-xs font-semibold text-gray-700">Respuestas manuales pendientes de revisar</h3>
+          <div className="mt-2 space-y-2">
+            {learnings.map((learning) => (
+              <div key={learning.id} className="rounded-lg bg-gray-50 p-3">
+                <p className="whitespace-pre-wrap text-sm text-gray-700">{learning.candidateText || 'El texto original ya no está disponible.'}</p>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={() => reviewLearning.mutate({ id: learning.id, status: 'approved' })} className="rounded-md bg-green-600 px-2 py-1 text-xs text-white">Aprobar ejemplo</button>
+                  <button onClick={() => reviewLearning.mutate({ id: learning.id, status: 'rejected' })} className="rounded-md border px-2 py-1 text-xs text-gray-700">Descartar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function PipelinePage() {
   const qc = useQueryClient();
+  const user = useAuthStore((state) => state.user);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState('');
   const { data, isLoading } = useQuery({
@@ -61,8 +131,10 @@ export default function PipelinePage() {
           <h1 className="text-2xl font-bold text-gray-900">Pipeline WhatsApp</h1>
           <p className="text-sm text-gray-500 mt-1">Conversaciones entrantes y seguimiento comercial</p>
         </div>
-        <span className="text-xs rounded-full bg-amber-50 text-amber-700 px-3 py-1">Piloto IA controlado · 4 teléfonos</span>
+        <span className="text-xs rounded-full bg-blue-50 text-blue-700 px-3 py-1">IA supervisada</span>
       </div>
+
+      {user?.role === 'admin' && <AiGuidancePanel />}
 
       {isLoading ? <div className="p-12 text-center text-sm text-gray-400">Cargando conversaciones...</div> : (
         <div className="flex gap-4 overflow-x-auto pb-4">

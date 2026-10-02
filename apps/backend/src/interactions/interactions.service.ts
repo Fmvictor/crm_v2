@@ -24,7 +24,7 @@ export class InteractionsService {
   }
 
   async createSystemInteraction(
-    dto: CreateInteractionDto,
+    dto: CreateInteractionDto & { createdById?: string },
   ): Promise<Interaction> {
     if (dto.externalMessageId) {
       const existing = await this.interactionsRepo.findOne({

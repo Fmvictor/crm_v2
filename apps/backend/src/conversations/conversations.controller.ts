@@ -128,6 +128,7 @@ export class ConversationsController {
       conversation.externalContactKey,
       body.text,
       ConversationMessageActor.AGENT,
+      request.user.id,
     );
     return this.conversationsService.findOne(id);
   }

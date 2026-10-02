@@ -15,6 +15,7 @@ import type { Request } from 'express';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User, UserRole } from '../users/entities/user.entity';
+import { ConversationMessageActor } from '../conversations/entities/conversation-message.entity';
 
 type AuthenticatedRequest = Request & { user: User };
 
@@ -32,7 +33,11 @@ export class WhatsAppController {
   @Post('send-template')
   sendTemplate(@Req() request: AuthenticatedRequest, @Body() body: any) {
     this.assertCanSend(request.user);
-    return this.whatsAppService.sendTemplate(body);
+    return this.whatsAppService.sendTemplate(
+      body,
+      ConversationMessageActor.AGENT,
+      request.user.id,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
@@ -42,7 +47,12 @@ export class WhatsAppController {
     @Body() body: { to: string; text: string },
   ) {
     this.assertCanSend(request.user);
-    return this.whatsAppService.sendText(body.to, body.text);
+    return this.whatsAppService.sendText(
+      body.to,
+      body.text,
+      ConversationMessageActor.AGENT,
+      request.user.id,
+    );
   }
 
   @Get('webhook')
@@ -56,13 +66,13 @@ export class WhatsAppController {
 
   @HttpCode(200)
   @Post('webhook')
-  handleWebhook(
+  async handleWebhook(
     @Body() body: any,
     @Req() request: RawBodyRequest<Request>,
     @Headers('x-hub-signature-256') signature?: string,
   ) {
     this.whatsAppService.verifyWebhookSignature(request.rawBody, signature);
-    void this.whatsAppService.handleWebhook(body);
+    await this.whatsAppService.handleWebhook(body);
     return { received: true };
   }
 

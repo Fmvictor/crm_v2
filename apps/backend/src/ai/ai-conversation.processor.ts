@@ -84,6 +84,14 @@ export class AiConversationProcessor {
         body: message.body,
       })),
     });
+    if (
+      (await this.guidanceService.isPaused()) ||
+      !(await this.conversationsService.canAiReply(
+        conversationId,
+        lastInbound.id,
+      ))
+    )
+      return;
 
     await this.conversationsService.updateLead(conversationId, {
       courseInterest: decision.courseInterest ?? undefined,

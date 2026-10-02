@@ -146,3 +146,18 @@ export interface Conversation {
   pipelineEvents?: PipelineEvent[];
   updatedAt: string;
 }
+
+export interface AiGuidanceConfiguration {
+  instruction: string | null;
+  paused: boolean;
+}
+
+export interface AiLearning {
+  id: string;
+  interactionId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  category: string;
+  candidateText: string | null;
+  approvedText: string | null;
+  createdAt: string;
+}
