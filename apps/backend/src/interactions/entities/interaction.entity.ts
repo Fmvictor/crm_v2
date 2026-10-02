@@ -11,11 +11,7 @@ import { Contact } from '../../contacts/entities/contact.entity';
 import { User } from '../../users/entities/user.entity';
 
 export enum InteractionType {
-  CALL = 'call',
   WHATSAPP = 'whatsapp',
-  EMAIL = 'email',
-  NOTE = 'note',
-  MEETING = 'meeting',
 }
 
 export enum InteractionDirection {
@@ -41,12 +37,6 @@ export class Interaction {
 
   @Column({ type: 'text' })
   notes: string;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  scheduledAt: Date | null;
-
-  @Column({ type: 'int', nullable: true })
-  durationMinutes: number | null;
 
   @ManyToOne(() => Contact, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'contactId' })

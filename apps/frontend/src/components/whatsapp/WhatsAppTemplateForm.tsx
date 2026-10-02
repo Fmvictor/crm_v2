@@ -1,122 +1,125 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import api from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, CheckCircle2, Loader2, Send } from "lucide-react";
+import api from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface Template {
   name: string;
   status: string;
   language: string;
 }
-
-interface WhatsAppTemplateFormProps {
+interface Props {
   contactId: string;
   phone: string;
 }
 
-export function WhatsAppTemplateForm({ contactId, phone }: WhatsAppTemplateFormProps) {
+export function WhatsAppTemplateForm({ contactId, phone }: Props) {
   const queryClient = useQueryClient();
-  const [selectedTemplate, setSelectedTemplate] = useState('');
-  const [params, setParams] = useState<string[]>(['']);
-  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
-
+  const [selectedName, setSelectedName] = useState("");
+  const [params, setParams] = useState<string[]>([""]);
+  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const { data: templates = [], isLoading } = useQuery<Template[]>({
-    queryKey: ['whatsapp-templates'],
-    queryFn: () => api.get('/whatsapp/templates').then((r) => r.data),
+    queryKey: ["whatsapp-templates"],
+    queryFn: () =>
+      api.get("/whatsapp/templates").then((response) => response.data),
   });
-
+  const selected = templates.find((template) => template.name === selectedName);
   const mutation = useMutation({
-    mutationFn: (body: any) => api.post('/whatsapp/send-template', body),
+    mutationFn: () =>
+      api.post("/whatsapp/send-template", {
+        to: phone,
+        templateName: selectedName,
+        languageCode: selected?.language ?? "es",
+        params: params.filter((value) => value.trim()),
+      }),
     onSuccess: () => {
-      setStatus('success');
-      setSelectedTemplate('');
-      setParams(['']);
-      queryClient.invalidateQueries({ queryKey: ['interactions', contactId] });
-      setTimeout(() => setStatus('idle'), 3000);
+      setStatus("success");
+      setSelectedName("");
+      setParams([""]);
+      queryClient.invalidateQueries({ queryKey: ["interactions", contactId] });
+      setTimeout(() => setStatus("idle"), 3000);
     },
     onError: () => {
-      setStatus('error');
-      setTimeout(() => setStatus('idle'), 3000);
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 3000);
     },
   });
 
-  const handleSend = () => {
-    if (!selectedTemplate) return;
-    mutation.mutate({
-      to: phone,
-      templateName: selectedTemplate,
-      params: params.filter(p => p.trim() !== ''),
-    });
-  };
-
-  const addParam = () => setParams([...params, '']);
-  const updateParam = (idx: number, val: string) => {
-    const newParams = [...params];
-    newParams[idx] = val;
-    setParams(newParams);
-  };
-  const removeParam = (idx: number) => {
-    setParams(params.filter((_, i) => i !== idx));
-  };
-
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="bg-gray-50 border-b border-gray-100 px-5 py-3">
-        <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-          <Send className="h-4 w-4 text-green-600" />
-          Enviar Plantilla de WhatsApp
-        </h3>
+    <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div className="border-b border-gray-100 bg-gray-50 px-5 py-3">
+        <h2 className="flex items-center gap-2 text-sm font-bold text-gray-900">
+          <Send className="h-4 w-4 text-green-600" /> Plantilla de WhatsApp
+        </h2>
       </div>
-
-      <div className="p-5 space-y-4">
+      <div className="space-y-4 p-5">
         <div>
-          <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">
-            Seleccionar Plantilla
+          <label className="mb-1.5 block text-xs font-bold uppercase text-gray-500">
+            Plantilla aprobada
           </label>
           <select
-            value={selectedTemplate}
-            onChange={(e) => setSelectedTemplate(e.target.value)}
+            value={selectedName}
+            onChange={(event) => setSelectedName(event.target.value)}
             disabled={isLoading || mutation.isPending}
-            className="w-full text-sm text-gray-900 border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none disabled:bg-gray-50"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-50"
           >
-            <option value="">-- Elige una plantilla --</option>
-            {templates.filter(t => t.status === 'APPROVED').map((t) => (
-              <option key={t.name} value={t.name}>
-                {t.name} ({t.language})
-              </option>
-            ))}
+            <option value="">Selecciona una plantilla</option>
+            {templates
+              .filter((template) => template.status === "APPROVED")
+              .map((template) => (
+                <option
+                  key={`${template.name}-${template.language}`}
+                  value={template.name}
+                >
+                  {template.name} ({template.language})
+                </option>
+              ))}
           </select>
           {templates.length === 0 && !isLoading && (
-            <p className="mt-1 text-[10px] text-orange-600">No se encontraron plantillas aprobadas.</p>
+            <p className="mt-1 text-[10px] text-orange-600">
+              No se encontraron plantillas aprobadas.
+            </p>
           )}
         </div>
 
-        {selectedTemplate && (
-          <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-            <label className="block text-xs font-bold text-gray-500 uppercase">
-              Variables ({'{{1}}'}, {'{{2}}'}, ...)
+        {selectedName && (
+          <div className="space-y-3">
+            <label className="block text-xs font-bold uppercase text-gray-500">
+              Variables
             </label>
-            {params.map((val, idx) => (
-              <div key={idx} className="flex gap-2">
+            {params.map((value, index) => (
+              <div key={index} className="flex gap-2">
                 <input
-                  value={val}
-                  onChange={(e) => updateParam(idx, e.target.value)}
-                  placeholder={`Valor variable {{${idx + 1}}}`}
-                  className="flex-1 text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
+                  value={value}
+                  onChange={(event) =>
+                    setParams((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? event.target.value : item,
+                      ),
+                    )
+                  }
+                  placeholder={`Valor {{${index + 1}}}`}
+                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-green-500"
                 />
                 <button
-                  onClick={() => removeParam(idx)}
-                  className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                  type="button"
+                  onClick={() =>
+                    setParams((current) =>
+                      current.filter((_, itemIndex) => itemIndex !== index),
+                    )
+                  }
+                  className="px-2 text-gray-400 hover:text-red-600"
                 >
-                  &times;
+                  ×
                 </button>
               </div>
             ))}
             <button
-              onClick={addParam}
+              type="button"
+              onClick={() => setParams((current) => [...current, ""])}
               className="text-xs font-semibold text-green-600 hover:text-green-700"
             >
               + Añadir variable
@@ -124,39 +127,33 @@ export function WhatsAppTemplateForm({ contactId, phone }: WhatsAppTemplateFormP
           </div>
         )}
 
-        <div className="pt-2">
-          <button
-            onClick={handleSend}
-            disabled={!selectedTemplate || mutation.isPending}
-            className={cn(
-              "w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all",
-              status === 'success'
-                ? "bg-green-600 text-white"
-                : status === 'error'
-                ? "bg-red-600 text-white"
-                : "bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-200 disabled:text-gray-400 shadow-sm hover:shadow-md"
-            )}
-          >
-            {mutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : status === 'success' ? (
-              <>
-                <CheckCircle2 className="h-4 w-4" />
-                ¡Enviado!
-              </>
-            ) : status === 'error' ? (
-              <>
-                <AlertCircle className="h-4 w-4" />
-                Error al enviar
-              </>
-            ) : (
-              <>
-                <Send className="h-4 w-4" />
-                Enviar ahora
-              </>
-            )}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => mutation.mutate()}
+          disabled={!selectedName || !phone || mutation.isPending}
+          className={cn(
+            "flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-bold text-white transition-colors disabled:bg-gray-200 disabled:text-gray-400",
+            status === "error"
+              ? "bg-red-600"
+              : "bg-green-600 hover:bg-green-700",
+          )}
+        >
+          {mutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : status === "success" ? (
+            <>
+              <CheckCircle2 className="h-4 w-4" /> Enviado
+            </>
+          ) : status === "error" ? (
+            <>
+              <AlertCircle className="h-4 w-4" /> Error al enviar
+            </>
+          ) : (
+            <>
+              <Send className="h-4 w-4" /> Enviar plantilla
+            </>
+          )}
+        </button>
       </div>
     </div>
   );

@@ -1,23 +1,21 @@
-'use client';
+"use client";
 
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '@/lib/api';
-import { Modal } from '@/components/ui/Modal';
-import { Field, inputClass, selectClass } from '@/components/ui/Field';
-import type { Contact } from '@/types';
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import api from "@/lib/api";
+import { Modal } from "@/components/ui/Modal";
+import { Field, inputClass, selectClass } from "@/components/ui/Field";
+import type { Contact } from "@/types";
 
 const schema = z.object({
-  name: z.string().min(1, 'Requerido').max(100),
-  email: z.string().email('Email inválido').optional().or(z.literal('')),
-  phone: z.string().max(30).optional().or(z.literal('')),
-  status: z.enum(['new', 'contacted', 'qualified', 'enrolled', 'lost']),
-  source: z.enum(['whatsapp', 'web', 'referral', 'social', 'other']),
-  courseInterest: z.string().max(200).optional().or(z.literal('')),
-  notes: z.string().optional().or(z.literal('')),
+  name: z.string().min(1, "Requerido").max(100),
+  phone: z.string().min(7, "Introduce un teléfono válido").max(30),
+  status: z.enum(["new", "contacted", "qualified", "enrolled", "lost"]),
+  notes: z.string().optional(),
 });
+
 type FormData = z.infer<typeof schema>;
 
 interface Props {
@@ -26,10 +24,17 @@ interface Props {
   contact?: Contact;
 }
 
-export function ContactForm({ open, onClose, contact }: Props) {
-  const qc = useQueryClient();
-  const isEdit = !!contact;
+const statusLabels: Record<FormData["status"], string> = {
+  new: "Nuevo",
+  contacted: "Contactado",
+  qualified: "Calificado",
+  enrolled: "Inscrito",
+  lost: "Perdido",
+};
 
+export function ContactForm({ open, onClose, contact }: Props) {
+  const queryClient = useQueryClient();
+  const isEdit = Boolean(contact);
   const {
     register,
     handleSubmit,
@@ -40,31 +45,22 @@ export function ContactForm({ open, onClose, contact }: Props) {
     defaultValues: contact
       ? {
           name: contact.name,
-          email: contact.email ?? '',
-          phone: contact.phone ?? '',
+          phone: contact.phone ?? "",
           status: contact.status,
-          source: contact.source,
-          courseInterest: contact.courseInterest ?? '',
-          notes: contact.notes ?? '',
+          notes: contact.notes ?? "",
         }
-      : { status: 'new', source: 'other' },
+      : { name: "", phone: "", status: "new", notes: "" },
   });
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) => {
-      const payload = {
-        ...data,
-        email: data.email || undefined,
-        phone: data.phone || undefined,
-        courseInterest: data.courseInterest || undefined,
-        notes: data.notes || undefined,
-      };
-      return isEdit
-        ? api.patch(`/contacts/${contact!.id}`, payload)
-        : api.post('/contacts', payload);
-    },
+    mutationFn: (data: FormData) =>
+      isEdit
+        ? api.patch(`/contacts/${contact!.id}`, data)
+        : api.post("/contacts", data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['contacts'] });
+      queryClient.invalidateQueries({ queryKey: ["contacts"] });
+      if (contact)
+        queryClient.invalidateQueries({ queryKey: ["contacts", contact.id] });
       reset();
       onClose();
     },
@@ -74,71 +70,79 @@ export function ContactForm({ open, onClose, contact }: Props) {
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? 'Editar contacto' : 'Nuevo contacto'}
+      title={isEdit ? "Editar contacto" : "Nuevo contacto"}
     >
-      <form onSubmit={handleSubmit((d) => mutation.mutateAsync(d))} className="space-y-4">
+      <form
+        onSubmit={handleSubmit((data) => mutation.mutateAsync(data))}
+        className="space-y-4"
+      >
         {mutation.isError && (
-          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
             Error al guardar el contacto
           </p>
         )}
 
         <Field label="Nombre" required error={errors.name?.message}>
-          <input {...register('name')} className={inputClass} placeholder="Carlos López" />
+          <input
+            {...register("name")}
+            className={inputClass}
+            placeholder="Nombre del contacto"
+          />
         </Field>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Email" error={errors.email?.message}>
-            <input {...register('email')} type="email" className={inputClass} placeholder="carlos@example.com" />
-          </Field>
-          <Field label="Teléfono" error={errors.phone?.message}>
-            <input {...register('phone')} className={inputClass} placeholder="+52 55 1234 5678" />
-          </Field>
-        </div>
+        <Field
+          label="Teléfono de WhatsApp"
+          required
+          error={errors.phone?.message}
+        >
+          <input
+            {...register("phone")}
+            className={inputClass}
+            placeholder="+34 600 123 456"
+          />
+        </Field>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Estado" required error={errors.status?.message}>
-            <select {...register('status')} className={selectClass}>
-              <option value="new">Nuevo</option>
-              <option value="contacted">Contactado</option>
-              <option value="qualified">Calificado</option>
-              <option value="enrolled">Inscrito</option>
-              <option value="lost">Perdido</option>
-            </select>
-          </Field>
-          <Field label="Origen" required error={errors.source?.message}>
-            <select {...register('source')} className={selectClass}>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="web">Web</option>
-              <option value="referral">Referido</option>
-              <option value="social">Redes sociales</option>
-              <option value="other">Otro</option>
-            </select>
-          </Field>
-        </div>
-
-        <Field label="Curso de interés" error={errors.courseInterest?.message}>
-          <input {...register('courseInterest')} className={inputClass} placeholder="Ej: Marketing Digital" />
+        <Field
+          label="Etapa del pipeline"
+          required
+          error={errors.status?.message}
+        >
+          <select {...register("status")} className={selectClass}>
+            {Object.entries(statusLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field label="Notas" error={errors.notes?.message}>
-          <textarea {...register('notes')} rows={3} className={inputClass} placeholder="Notas adicionales..." />
+          <textarea
+            {...register("notes")}
+            rows={3}
+            className={inputClass}
+            placeholder="Contexto útil para la conversación..."
+          />
         </Field>
 
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Cancelar
           </button>
           <button
             type="submit"
             disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 rounded-lg transition-colors"
+            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:bg-green-300"
           >
-            {isSubmitting ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear contacto'}
+            {isSubmitting
+              ? "Guardando..."
+              : isEdit
+                ? "Guardar cambios"
+                : "Añadir al pipeline"}
           </button>
         </div>
       </form>

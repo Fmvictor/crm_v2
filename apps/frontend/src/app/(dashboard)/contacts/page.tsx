@@ -1,167 +1,154 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Search, Plus, Mail, Phone, Pencil } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import api from '@/lib/api';
-import { cn } from '@/lib/utils';
-import type { PaginatedResult, Contact, ContactStatus, ContactSource } from '@/types';
-import { ContactForm } from '@/components/contacts/ContactForm';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { MessageCircle, Pencil, Plus, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import api from "@/lib/api";
+import { cn } from "@/lib/utils";
+import type { Contact, ContactStatus, PaginatedResult } from "@/types";
+import { ContactForm } from "@/components/contacts/ContactForm";
 
-const statusColors: Record<ContactStatus, string> = {
-  new: 'bg-gray-100 text-gray-700',
-  contacted: 'bg-blue-100 text-blue-700',
-  qualified: 'bg-yellow-100 text-yellow-700',
-  enrolled: 'bg-green-100 text-green-700',
-  lost: 'bg-red-100 text-red-700',
-};
+const statuses: ContactStatus[] = [
+  "new",
+  "contacted",
+  "qualified",
+  "enrolled",
+  "lost",
+];
 const statusLabels: Record<ContactStatus, string> = {
-  new: 'Nuevo', contacted: 'Contactado', qualified: 'Calificado',
-  enrolled: 'Inscrito', lost: 'Perdido',
+  new: "Nuevos",
+  contacted: "Contactados",
+  qualified: "Calificados",
+  enrolled: "Inscritos",
+  lost: "Perdidos",
 };
-const sourceLabels: Record<ContactSource, string> = {
-  whatsapp: 'WhatsApp', web: 'Web', referral: 'Referido',
-  social: 'Redes', other: 'Otro',
+const statusColors: Record<ContactStatus, string> = {
+  new: "border-gray-200 bg-gray-50",
+  contacted: "border-blue-100 bg-blue-50/50",
+  qualified: "border-yellow-100 bg-yellow-50/50",
+  enrolled: "border-green-100 bg-green-50/50",
+  lost: "border-red-100 bg-red-50/50",
 };
 
-export default function ContactsPage() {
+export default function PipelinePage() {
   const router = useRouter();
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Contact | undefined>();
-
-  const params = new URLSearchParams({
-    page: String(page), limit: '20',
+  const [editing, setEditing] = useState<Contact>();
+  const query = new URLSearchParams({
+    limit: "100",
     ...(search && { search }),
-    ...(status && { status }),
   });
-
   const { data, isLoading } = useQuery({
-    queryKey: ['contacts', search, status, page],
-    queryFn: () => api.get<PaginatedResult<Contact>>(`/contacts?${params}`).then((r) => r.data),
-    placeholderData: (prev) => prev,
+    queryKey: ["contacts", "pipeline", search],
+    queryFn: () =>
+      api
+        .get<PaginatedResult<Contact>>(`/contacts?${query}`)
+        .then((response) => response.data),
   });
 
-  const openCreate = () => { setEditing(undefined); setFormOpen(true); };
-  const openEdit = (c: Contact, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditing(c);
+  const openCreate = () => {
+    setEditing(undefined);
+    setFormOpen(true);
+  };
+  const openEdit = (contact: Contact, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setEditing(contact);
     setFormOpen(true);
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Contactos</h1>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-green-600">WhatsApp CRM</p>
+          <h1 className="text-2xl font-bold text-gray-900">Pipeline</h1>
+        </div>
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="flex items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
         >
           <Plus className="h-4 w-4" /> Nuevo contacto
         </button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Buscar por nombre, email o teléfono..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Buscar por nombre o teléfono..."
+          className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+        />
+      </div>
+
+      {isLoading ? (
+        <div className="rounded-2xl bg-white p-12 text-center text-sm text-gray-400">
+          Cargando pipeline...
         </div>
-        <select
-          value={status}
-          onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-          className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-        >
-          <option value="">Todos los estados</option>
-          {(Object.keys(statusLabels) as ContactStatus[]).map((s) => (
-            <option key={s} value={s}>{statusLabels[s]}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        {isLoading ? (
-          <div className="p-12 text-center text-sm text-gray-400">Cargando...</div>
-        ) : (data?.data.length ?? 0) === 0 ? (
-          <div className="p-12 text-center text-sm text-gray-400">No se encontraron contactos</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Nombre</th>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Contacto</th>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Estado</th>
-                <th className="text-left px-6 py-3 font-medium text-gray-500">Origen</th>
-                <th className="px-6 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {data?.data.map((contact) => (
-                <tr
-                  key={contact.id}
-                  className="hover:bg-gray-50 transition-colors cursor-pointer"
-                  onClick={() => router.push(`/contacts/${contact.id}`)}
-                >
-                  <td className="px-6 py-4 font-medium text-gray-900">{contact.name}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1">
-                      {contact.email && (
-                        <span className="flex items-center gap-1 text-gray-500">
-                          <Mail className="h-3 w-3" /> {contact.email}
-                        </span>
-                      )}
-                      {contact.phone && (
-                        <span className="flex items-center gap-1 text-gray-500">
-                          <Phone className="h-3 w-3" /> {contact.phone}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn('px-2 py-1 rounded-full text-xs font-medium', statusColors[contact.status])}>
-                      {statusLabels[contact.status]}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-500">{sourceLabels[contact.source]}</td>
-                  <td className="px-6 py-4">
-                    <button
-                      onClick={(e) => openEdit(contact, e)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-5">
+          {statuses.map((status) => {
+            const contacts = (data?.data ?? []).filter(
+              (contact) => contact.status === status,
+            );
+            return (
+              <section
+                key={status}
+                className={cn(
+                  "min-h-52 rounded-2xl border p-3",
+                  statusColors[status],
+                )}
+              >
+                <div className="mb-3 flex items-center justify-between px-1">
+                  <h2 className="text-sm font-semibold text-gray-800">
+                    {statusLabels[status]}
+                  </h2>
+                  <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-gray-500">
+                    {contacts.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {contacts.map((contact) => (
+                    <article
+                      key={contact.id}
+                      onClick={() => router.push(`/contacts/${contact.id}`)}
+                      className="group cursor-pointer rounded-xl border border-gray-100 bg-white p-3 shadow-sm hover:border-green-200 hover:shadow-md"
                     >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {(data?.lastPage ?? 0) > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
-            <p className="text-sm text-gray-500">
-              {data?.total} contactos · página {data?.page} de {data?.lastPage}
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
-                Anterior
-              </button>
-              <button onClick={() => setPage((p) => p + 1)} disabled={page === data?.lastPage}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50">
-                Siguiente
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="truncate text-sm font-semibold text-gray-900">
+                          {contact.name}
+                        </h3>
+                        <button
+                          onClick={(event) => openEdit(contact, event)}
+                          className="invisible rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 group-hover:visible"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <p className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+                        <MessageCircle className="h-3 w-3 text-green-600" />
+                        {contact.phone ?? "Sin teléfono"}
+                      </p>
+                      {contact.notes && (
+                        <p className="mt-2 line-clamp-2 text-xs text-gray-500">
+                          {contact.notes}
+                        </p>
+                      )}
+                    </article>
+                  ))}
+                  {contacts.length === 0 && (
+                    <p className="px-1 py-5 text-center text-xs text-gray-400">
+                      Vacío
+                    </p>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
 
       <ContactForm
         open={formOpen}

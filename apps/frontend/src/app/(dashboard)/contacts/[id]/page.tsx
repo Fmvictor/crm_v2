@@ -1,461 +1,227 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { use } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import {
-  ArrowLeft, Pencil, Phone, Mail, MapPin, MessageSquare,
-  PhoneCall, AtSign, FileText, Users, Plus, Trash2, Send,
-} from 'lucide-react';
-import api from '@/lib/api';
-import { cn } from '@/lib/utils';
-import type { Contact, Enrollment } from '@/types';
-import { ContactForm } from '@/components/contacts/ContactForm';
-import { InteractionForm } from '@/components/interactions/InteractionForm';
-import { WhatsAppTemplateForm } from '@/components/whatsapp/WhatsAppTemplateForm';
+import { use, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, MessageCircle, Pencil, Send } from "lucide-react";
+import { useRouter } from "next/navigation";
+import api from "@/lib/api";
+import { cn } from "@/lib/utils";
+import type { Contact, Interaction, PaginatedResult } from "@/types";
+import { ContactForm } from "@/components/contacts/ContactForm";
+import { WhatsAppTemplateForm } from "@/components/whatsapp/WhatsAppTemplateForm";
 
-type Interaction = {
-  id: string;
-  type: 'call' | 'whatsapp' | 'email' | 'note' | 'meeting';
-  direction: 'inbound' | 'outbound' | null;
-  notes: string;
-  durationMinutes: number | null;
-  createdBy: { name: string } | null;
-  createdAt: string;
+const statusLabels: Record<Contact["status"], string> = {
+  new: "Nuevo",
+  contacted: "Contactado",
+  qualified: "Calificado",
+  enrolled: "Inscrito",
+  lost: "Perdido",
 };
-
-const statusColors: Record<string, string> = {
-  new: 'bg-gray-100 text-gray-700', contacted: 'bg-blue-100 text-blue-700',
-  qualified: 'bg-yellow-100 text-yellow-700', enrolled: 'bg-green-100 text-green-700',
-  lost: 'bg-red-100 text-red-700',
-};
-const statusLabels: Record<string, string> = {
-  new: 'Nuevo', contacted: 'Contactado', qualified: 'Calificado',
-  enrolled: 'Inscrito', lost: 'Perdido',
-};
-const typeIcons: Record<string, React.ElementType> = {
-  call: PhoneCall, whatsapp: MessageSquare, email: AtSign,
-  note: FileText, meeting: Users,
-};
-const typeLabels: Record<string, string> = {
-  call: 'Llamada', whatsapp: 'WhatsApp', email: 'Email',
-  note: 'Nota', meeting: 'Reunión',
-};
-const enrollStatusColors: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-700', confirmed: 'bg-blue-100 text-blue-700',
-  active: 'bg-green-100 text-green-700', completed: 'bg-purple-100 text-purple-700',
-  cancelled: 'bg-red-100 text-red-700',
-};
-const enrollStatusLabels: Record<string, string> = {
-  pending: 'Pendiente', confirmed: 'Confirmado', active: 'Activo',
-  completed: 'Completado', cancelled: 'Cancelado',
+const statusColors: Record<Contact["status"], string> = {
+  new: "bg-gray-100 text-gray-700",
+  contacted: "bg-blue-100 text-blue-700",
+  qualified: "bg-yellow-100 text-yellow-700",
+  enrolled: "bg-green-100 text-green-700",
+  lost: "bg-red-100 text-red-700",
 };
 
-function formatDate(iso: string) {
-  return new Intl.DateTimeFormat('es-MX', {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  }).format(new Date(iso));
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
-export default function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function ContactDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = use(params);
   const router = useRouter();
-  const qc = useQueryClient();
+  const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
-  const [interactionOpen, setInteractionOpen] = useState(false);
-  const [tab, setTab] = useState<'history' | 'whatsapp' | 'email'>('history');
-  const [waText, setWaText] = useState('');
-  const [waSending, setWaSending] = useState(false);
-  const [emailSubject, setEmailSubject] = useState('');
-  const [emailBody, setEmailBody] = useState('');
-  const [emailSending, setEmailSending] = useState(false);
+  const [message, setMessage] = useState("");
 
   const { data: contact, isLoading } = useQuery({
-    queryKey: ['contacts', id],
-    queryFn: () => api.get<Contact>(`/contacts/${id}`).then((r) => r.data),
+    queryKey: ["contacts", id],
+    queryFn: () =>
+      api.get<Contact>(`/contacts/${id}`).then((response) => response.data),
   });
-
   const { data: interactions } = useQuery({
-    queryKey: ['interactions', id],
+    queryKey: ["interactions", id],
     queryFn: () =>
-      api.get<{ data: Interaction[] }>(`/interactions?contactId=${id}&limit=50`).then((r) => r.data),
-    enabled: !!id,
+      api
+        .get<
+          PaginatedResult<Interaction>
+        >(`/interactions?contactId=${id}&limit=100`)
+        .then((response) => response.data),
+    enabled: Boolean(id),
+    refetchInterval: 10000,
+  });
+  const sendMessage = useMutation({
+    mutationFn: (text: string) =>
+      api.post("/whatsapp/send-text", { to: contact?.phone, text }),
+    onSuccess: () => {
+      setMessage("");
+      queryClient.invalidateQueries({ queryKey: ["interactions", id] });
+    },
   });
 
-  const { data: enrollments } = useQuery({
-    queryKey: ['enrollments', 'contact', id],
-    queryFn: () =>
-      api.get<{ data: Enrollment[] }>(`/enrollments?contactId=${id}&limit=20`).then((r) => r.data),
-    enabled: !!id,
-  });
+  if (isLoading)
+    return (
+      <div className="p-8 text-sm text-gray-400">Cargando conversación...</div>
+    );
+  if (!contact)
+    return (
+      <div className="p-8 text-sm text-gray-400">Contacto no encontrado</div>
+    );
 
-  const sendWaText = async () => {
-    if (!waText.trim() || !contact?.phone) return;
-    setWaSending(true);
-    try {
-      await api.post('/whatsapp/send-text', { to: contact.phone, text: waText.trim() });
-      setWaText('');
-      qc.invalidateQueries({ queryKey: ['interactions', id] });
-    } catch {
-      // silently ignore
-    } finally {
-      setWaSending(false);
-    }
-  };
-
-  const sendEmail = async () => {
-    if (!emailBody.trim()) return;
-    setEmailSending(true);
-    try {
-      const notes = emailSubject.trim()
-        ? `Asunto: ${emailSubject.trim()}\n\n${emailBody.trim()}`
-        : emailBody.trim();
-      await api.post('/interactions', {
-        type: 'email',
-        direction: 'outbound',
-        notes,
-        contactId: id,
-      });
-      setEmailSubject('');
-      setEmailBody('');
-      qc.invalidateQueries({ queryKey: ['interactions', id] });
-    } catch {
-      // silently ignore
-    } finally {
-      setEmailSending(false);
-    }
-  };
-
-  const deleteInteraction = useMutation({
-    mutationFn: (iId: string) => api.delete(`/interactions/${iId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['interactions', id] }),
-  });
-
-  if (isLoading) return <div className="text-sm text-gray-400 p-8">Cargando...</div>;
-  if (!contact) return <div className="text-sm text-gray-400 p-8">Contacto no encontrado</div>;
+  const messages = [...(interactions?.data ?? [])].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      {/* Back + header */}
-      <div className="flex items-start gap-4">
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="flex items-start gap-3">
         <button
-          onClick={() => router.back()}
-          className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors mt-0.5"
+          onClick={() => router.push("/contacts")}
+          className="mt-0.5 rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold text-gray-900">{contact.name}</h1>
-            <span className={cn('text-xs font-medium px-2 py-1 rounded-full', statusColors[contact.status])}>
+            <span
+              className={cn(
+                "rounded-full px-2 py-1 text-xs font-medium",
+                statusColors[contact.status],
+              )}
+            >
               {statusLabels[contact.status]}
             </span>
           </div>
-          <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
-            {contact.email && (
-              <span className="flex items-center gap-1"><Mail className="h-3.5 w-3.5" />{contact.email}</span>
-            )}
-            {contact.phone && (
-              <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{contact.phone}</span>
-            )}
-            {(contact.address || contact.city || contact.postalCode || contact.country) && (
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3.5 w-3.5" />
-                {[contact.address, contact.city, contact.postalCode, contact.country].filter(Boolean).join(', ')}
-              </span>
-            )}
-          </div>
+          <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
+            <MessageCircle className="h-3.5 w-3.5 text-green-600" />
+            {contact.phone}
+          </p>
         </div>
         <button
           onClick={() => setEditOpen(true)}
-          className="flex items-center gap-2 text-sm font-medium text-gray-600 border border-gray-300 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+          className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
         >
           <Pencil className="h-3.5 w-3.5" /> Editar
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: info + enrollments */}
-        <div className="space-y-4">
-          {/* Info card */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
-            <h2 className="text-sm font-semibold text-gray-900">Información</h2>
-            <dl className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Origen</dt>
-                <dd className="font-medium text-gray-900 capitalize">{contact.source}</dd>
-              </div>
-              {contact.courseInterest && (
-                <div className="flex justify-between gap-2">
-                  <dt className="text-gray-500 shrink-0">Interés</dt>
-                  <dd className="font-medium text-gray-900 text-right">{contact.courseInterest}</dd>
-                </div>
-              )}
-              {contact.assignedTo && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Asignado a</dt>
-                  <dd className="font-medium text-gray-900">{contact.assignedTo.name}</dd>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Registrado</dt>
-                <dd className="text-gray-700">{formatDate(contact.createdAt)}</dd>
-              </div>
-            </dl>
-            {contact.notes && (
-              <div className="pt-2 border-t border-gray-50">
-                <p className="text-xs text-gray-500 mb-1">Notas</p>
-                <p className="text-sm text-gray-700">{contact.notes}</p>
-              </div>
-            )}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="flex min-h-[560px] flex-col rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
+            <MessageCircle className="h-5 w-5 text-green-600" />
+            <h2 className="font-semibold text-gray-900">
+              Conversación de WhatsApp
+            </h2>
           </div>
-          
-          {contact.phone && (
-            <WhatsAppTemplateForm contactId={contact.id} phone={contact.phone} />
-          )}
-
-          {/* Enrollments */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
-            <h2 className="text-sm font-semibold text-gray-900">Inscripciones</h2>
-            {(enrollments?.data.length ?? 0) === 0 ? (
-              <p className="text-xs text-gray-400">Sin inscripciones</p>
+          <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-5">
+            {messages.length === 0 ? (
+              <p className="m-auto text-sm text-gray-400">
+                Aún no hay mensajes.
+              </p>
             ) : (
-              <ul className="space-y-2">
-                {enrollments?.data.map((e) => (
-                  <li key={e.id} className="text-sm">
-                    <p className="font-medium text-gray-900 truncate">{e.course?.name ?? '—'}</p>
-                    <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded-full', enrollStatusColors[e.status])}>
-                      {enrollStatusLabels[e.status]}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* Right: interactions timeline */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4 border-b border-gray-50 flex-1">
-              <button 
-                onClick={() => setTab('history')}
-                className={cn(
-                  "pb-2 text-sm font-semibold transition-colors relative",
-                  tab === 'history' ? "text-blue-600" : "text-gray-400 hover:text-gray-600"
-                )}
-              >
-                Historial
-                {tab === 'history' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
-              </button>
-              <button
-                onClick={() => setTab('whatsapp')}
-                className={cn(
-                  "pb-2 text-sm font-semibold transition-colors relative",
-                  tab === 'whatsapp' ? "text-green-600" : "text-gray-400 hover:text-gray-600"
-                )}
-              >
-                WhatsApp
-                {tab === 'whatsapp' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-600 rounded-full" />}
-              </button>
-              <button
-                onClick={() => setTab('email')}
-                className={cn(
-                  "pb-2 text-sm font-semibold transition-colors relative",
-                  tab === 'email' ? "text-blue-600" : "text-gray-400 hover:text-gray-600"
-                )}
-              >
-                Email
-                {tab === 'email' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
-              </button>
-            </div>
-            <button
-              onClick={() => setInteractionOpen(true)}
-              className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors ml-4"
-            >
-              <Plus className="h-3.5 w-3.5" /> Registrar
-            </button>
-          </div>
-
-          {tab === 'history' && (() => {
-            const historyItems = (interactions?.data ?? []).filter(
-              (i) => i.type === 'whatsapp' || i.type === 'email',
-            );
-            return historyItems.length === 0 ? (
-              <p className="text-sm text-gray-400 py-4">Sin mensajes registrados</p>
-            ) : (
-              <div className="space-y-6 py-2">
-                {historyItems.map((interaction) => {
-                  const isWA = interaction.type === 'whatsapp';
-                  const Icon = typeIcons[interaction.type];
-                  const directionText = interaction.direction === 'inbound' ? 'entrante' : 'saliente';
-                  return (
-                    <div key={interaction.id} className="relative pl-12 group">
-                      <div className={cn(
-                        "absolute left-0 top-0 flex h-9 w-9 items-center justify-center rounded-full border shadow-sm z-10",
-                        isWA ? "bg-green-50 border-green-100 text-green-600" : "bg-blue-50 border-blue-100 text-blue-600"
-                      )}>
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-gray-900 uppercase tracking-tight">
-                            {typeLabels[interaction.type]}
-                          </span>
-                          {interaction.direction && (
-                            <span className={cn(
-                              "text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase",
-                              interaction.direction === 'inbound' ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600"
-                            )}>
-                              {directionText}
-                            </span>
-                          )}
-                          <time className="text-[11px] text-gray-400">
-                            {formatDate(interaction.createdAt)}
-                          </time>
-                          <button
-                            onClick={() => deleteInteraction.mutate(interaction.id)}
-                            className="invisible group-hover:visible p-1 rounded text-gray-300 hover:text-red-400 transition-all ml-auto"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                        <div className={cn(
-                          "inline-block rounded-2xl px-4 py-2 text-sm max-w-[90%] shadow-sm border",
-                          isWA
-                            ? (interaction.direction === 'inbound' ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm" : "bg-green-50 border-green-100 text-green-900 rounded-tr-sm")
-                            : (interaction.direction === 'inbound' ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm" : "bg-blue-50 border-blue-100 text-blue-900 rounded-tr-sm")
-                        )}>
-                          <p className="whitespace-pre-wrap">{interaction.notes}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          {tab === 'whatsapp' && (
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-3 min-h-[200px]">
-                {(interactions?.data ?? []).filter(i => i.type === 'whatsapp').length === 0 ? (
-                  <p className="text-sm text-gray-400 py-4 text-center">No hay mensajes de WhatsApp</p>
-                ) : (
-                  (interactions?.data ?? [])
-                    .filter(i => i.type === 'whatsapp')
-                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                    .map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={cn(
-                          "flex flex-col max-w-[80%]",
-                          msg.direction === 'inbound' ? "self-start" : "self-end items-end"
-                        )}
-                      >
-                        <div className={cn(
-                          "rounded-2xl px-4 py-2 text-sm shadow-sm border",
-                          msg.direction === 'inbound'
-                            ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm"
-                            : "bg-green-500 border-green-600/10 text-white rounded-tr-sm shadow-green-100"
-                        )}>
-                          <p className="whitespace-pre-wrap">{msg.notes}</p>
-                        </div>
-                        <time className="text-[10px] text-gray-400 mt-1 px-1">
-                          {formatDate(msg.createdAt)}
-                        </time>
-                      </div>
-                    ))
-                )}
-              </div>
-              {contact.phone && (
-                <div className="flex items-end gap-2 pt-3 border-t border-gray-100">
-                  <textarea
-                    value={waText}
-                    onChange={(e) => setWaText(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendWaText(); } }}
-                    placeholder="Escribe un mensaje... (solo dentro de la ventana de 24h)"
-                    rows={6}
-                    className="flex-1 text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-green-400"
-                  />
-                  <button
-                    onClick={sendWaText}
-                    disabled={waSending || !waText.trim()}
-                    className="p-2.5 bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white rounded-xl transition-colors"
+              messages.map((item) => (
+                <div
+                  key={item.id}
+                  className={cn(
+                    "flex max-w-[82%] flex-col",
+                    item.direction === "inbound"
+                      ? "self-start"
+                      : "self-end items-end",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "rounded-2xl px-4 py-2 text-sm shadow-sm",
+                      item.direction === "inbound"
+                        ? "rounded-tl-sm bg-gray-50 text-gray-700"
+                        : "rounded-tr-sm bg-green-500 text-white",
+                    )}
                   >
-                    <Send className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === 'email' && (
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-3 min-h-[100px]">
-                {(interactions?.data ?? []).filter(i => i.type === 'email').length === 0 ? (
-                  <p className="text-sm text-gray-400 py-4 text-center">No hay emails registrados</p>
-                ) : (
-                  (interactions?.data ?? [])
-                    .filter(i => i.type === 'email')
-                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                    .map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={cn(
-                          "flex flex-col max-w-[80%]",
-                          msg.direction === 'inbound' ? "self-start" : "self-end items-end"
-                        )}
-                      >
-                        <div className={cn(
-                          "rounded-2xl px-4 py-2 text-sm shadow-sm border",
-                          msg.direction === 'inbound'
-                            ? "bg-white border-gray-100 text-gray-700 rounded-tl-sm"
-                            : "bg-blue-500 border-blue-600/10 text-white rounded-tr-sm shadow-blue-100"
-                        )}>
-                          <p className="whitespace-pre-wrap">{msg.notes}</p>
-                        </div>
-                        <time className="text-[10px] text-gray-400 mt-1 px-1">
-                          {formatDate(msg.createdAt)}
-                        </time>
-                      </div>
-                    ))
-                )}
-              </div>
-              {contact?.email && (
-                <div className="flex flex-col gap-2 pt-3 border-t border-gray-100">
-                  <input
-                    value={emailSubject}
-                    onChange={(e) => setEmailSubject(e.target.value)}
-                    placeholder="Asunto (opcional)"
-                    className="w-full text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
-                  <div className="flex items-end gap-2">
-                    <textarea
-                      value={emailBody}
-                      onChange={(e) => setEmailBody(e.target.value)}
-                      placeholder="Escribe el cuerpo del email..."
-                      rows={5}
-                      className="flex-1 text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    />
-                    <button
-                      onClick={sendEmail}
-                      disabled={emailSending || !emailBody.trim()}
-                      className="p-2.5 bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white rounded-xl transition-colors"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
+                    <p className="whitespace-pre-wrap">{item.notes}</p>
                   </div>
+                  <time className="mt-1 px-1 text-[10px] text-gray-400">
+                    {formatDate(item.createdAt)}
+                  </time>
                 </div>
-              )}
-            </div>
+              ))
+            )}
+          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (message.trim()) sendMessage.mutate(message.trim());
+            }}
+            className="flex items-end gap-2 border-t border-gray-100 p-4"
+          >
+            <textarea
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (message.trim()) sendMessage.mutate(message.trim());
+                }
+              }}
+              rows={2}
+              placeholder="Escribe un mensaje..."
+              className="flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-green-400"
+            />
+            <button
+              type="submit"
+              disabled={sendMessage.isPending || !message.trim()}
+              className="rounded-xl bg-green-600 p-3 text-white hover:bg-green-700 disabled:opacity-40"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </form>
+          {sendMessage.isError && (
+            <p className="px-5 pb-4 text-xs text-red-600">
+              No se pudo enviar el mensaje.
+            </p>
           )}
-        </div>
+        </section>
+
+        <aside className="space-y-4">
+          <WhatsAppTemplateForm
+            contactId={contact.id}
+            phone={contact.phone ?? ""}
+          />
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <h2 className="mb-3 text-sm font-semibold text-gray-900">
+              Pipeline
+            </h2>
+            <p className="text-sm text-gray-500">
+              Etapa actual:{" "}
+              <span className="font-medium text-gray-900">
+                {statusLabels[contact.status]}
+              </span>
+            </p>
+            {contact.notes && (
+              <p className="mt-4 border-t border-gray-100 pt-4 text-sm text-gray-600">
+                {contact.notes}
+              </p>
+            )}
+          </div>
+        </aside>
       </div>
 
-      <ContactForm open={editOpen} onClose={() => setEditOpen(false)} contact={contact} />
-      <InteractionForm open={interactionOpen} onClose={() => setInteractionOpen(false)} contactId={id} />
+      <ContactForm
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        contact={contact}
+      />
     </div>
   );
 }

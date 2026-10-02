@@ -33,26 +33,27 @@ export class ContactsService {
   }
 
   async findAll(filter: FilterContactDto): Promise<PaginatedResult<Contact>> {
-    const { status, source, search, page = 1, limit = 20 } = filter;
+    const { status, search, page = 1, limit = 20 } = filter;
 
     const where: any = {};
     if (status) where.status = status;
-    if (source) where.source = source;
 
     if (search) {
       const baseWhere = { ...where };
-      
+
       // Intentar buscar también por teléfono limpio si la búsqueda parece un número
       const cleanSearch = search.replace(/\D/g, '');
-      
+
       const searchConditions = [
         { ...baseWhere, name: ILike(`%${search}%`) },
-        { ...baseWhere, email: ILike(`%${search}%`) },
         { ...baseWhere, phone: ILike(`%${search}%`) },
       ];
-      
+
       if (cleanSearch.length >= 3) {
-        searchConditions.push({ ...baseWhere, phone: ILike(`%${cleanSearch}%`) });
+        searchConditions.push({
+          ...baseWhere,
+          phone: ILike(`%${cleanSearch}%`),
+        });
       }
 
       const [data, total] = await this.contactsRepo.findAndCount({
@@ -88,12 +89,16 @@ export class ContactsService {
   async findOneByPhone(phone: string): Promise<Contact | null> {
     const cleanPhone = this.normalizePhone(phone);
     if (!cleanPhone || cleanPhone.length < 7) return null;
-    
+
     const lastDigits = cleanPhone.slice(-9);
-    
+
     // Usamos una consulta cruda para ignorar espacios/guiones en la base de datos
-    return this.contactsRepo.createQueryBuilder('contact')
-      .where("REPLACE(REPLACE(REPLACE(REPLACE(contact.phone, ' ', ''), '-', ''), '(', ''), ')', '') ILIKE :search", { search: `%${lastDigits}` })
+    return this.contactsRepo
+      .createQueryBuilder('contact')
+      .where(
+        "REPLACE(REPLACE(REPLACE(REPLACE(contact.phone, ' ', ''), '-', ''), '(', ''), ')', '') ILIKE :search",
+        { search: `%${lastDigits}` },
+      )
       .leftJoinAndSelect('contact.assignedTo', 'assignedTo')
       .getOne();
   }

@@ -1,30 +1,49 @@
-import { Controller, Get, Post, Body, Query, UseGuards, HttpCode } from '@nestjs/common';
-import { WhatsAppService } from './whatsapp.service';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { SendTemplateDto } from './dto/send-template.dto';
+import { SendTextDto } from './dto/send-text.dto';
+import { WhatsAppService } from './whatsapp.service';
 
+@ApiTags('whatsapp')
 @Controller('whatsapp')
 export class WhatsAppController {
   constructor(private readonly whatsAppService: WhatsAppService) {}
 
-  @UseGuards(JwtAuthGuard)
   @Get('templates')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Listar plantillas aprobadas de WhatsApp' })
   getTemplates() {
     return this.whatsAppService.getTemplates();
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('send-template')
-  sendTemplate(@Body() body: any) {
-    return this.whatsAppService.sendTemplate(body);
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Enviar una plantilla de WhatsApp' })
+  sendTemplate(@Body() dto: SendTemplateDto) {
+    return this.whatsAppService.sendTemplate(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('send-text')
-  sendText(@Body() body: { to: string; text: string }) {
-    return this.whatsAppService.sendText(body.to, body.text);
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Enviar un mensaje de texto de WhatsApp' })
+  sendText(@Body() dto: SendTextDto) {
+    return this.whatsAppService.sendText(dto.to, dto.text);
   }
 
   @Get('webhook')
+  @ApiOperation({ summary: 'Verificar el webhook de Meta' })
   verifyWebhook(
     @Query('hub.mode') mode: string,
     @Query('hub.verify_token') token: string,
@@ -33,9 +52,10 @@ export class WhatsAppController {
     return this.whatsAppService.verifyWebhook(mode, token, challenge);
   }
 
-  @HttpCode(200)
   @Post('webhook')
-  handleWebhook(@Body() body: any) {
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Recibir mensajes de WhatsApp desde Meta' })
+  handleWebhook(@Body() body: unknown) {
     return this.whatsAppService.handleWebhook(body);
   }
 }

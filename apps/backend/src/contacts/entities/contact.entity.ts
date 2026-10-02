@@ -18,14 +18,6 @@ export enum ContactStatus {
   LOST = 'lost',
 }
 
-export enum ContactSource {
-  WHATSAPP = 'whatsapp',
-  WEB = 'web',
-  REFERRAL = 'referral',
-  SOCIAL = 'social',
-  OTHER = 'other',
-}
-
 @Entity('contacts')
 export class Contact {
   @PrimaryGeneratedColumn('uuid')
@@ -34,35 +26,11 @@ export class Contact {
   @Column({ length: 100 })
   name: string;
 
-  @Column({ type: 'varchar', unique: true, length: 150, nullable: true })
-  email: string | null;
-
   @Column({ type: 'varchar', length: 30, nullable: true })
   phone: string | null;
 
   @Column({ type: 'enum', enum: ContactStatus, default: ContactStatus.NEW })
   status: ContactStatus;
-
-  @Column({ type: 'enum', enum: ContactSource, default: ContactSource.OTHER })
-  source: ContactSource;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  courseInterest: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  address: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  city: string | null;
-
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  postalCode: string | null;
-
-  @Column({ type: 'varchar', length: 2, nullable: true })
-  country: string | null;
-
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  dni: string | null;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;

@@ -1,99 +1,27 @@
-# Emeb CRM — Contexto del proyecto
+# Emeb WhatsApp CRM
 
-CRM para la academia de cursos **Emeb**. Gestiona contactos (prospectos/alumnos), cursos, inscripciones e interacciones (llamadas, WhatsApp, emails, notas, reuniones).
+Aplicación mínima para gestionar conversaciones de WhatsApp y mover contactos por un pipeline comercial.
 
-## Estructura del monorepo
+## Módulos
 
-```
-crm_v2/
-├── apps/
-│   ├── backend/    NestJS · puerto 3001
-│   └── frontend/   Next.js 15 · puerto 3000
-├── docker-compose.yml
-├── .env.example
-└── AGENTS.md
-```
+- **Auth**: login, refresh y sesión de usuarios internos.
+- **Contacts**: contactos con teléfono, notas y etapas del pipeline.
+- **Interactions**: historial de mensajes WhatsApp, solo lectura desde la aplicación.
+- **WhatsApp**: envío de texto, plantillas, webhook de Meta y alta automática de contactos entrantes.
+
+El frontend solo expone Resumen, WhatsApp e Pipeline. No añadir módulos de cursos, inscripciones, pagos, email, llamadas o reuniones dentro de este proyecto.
 
 ## Stack
 
-| Capa | Tecnología |
-|------|-----------|
-| Backend | NestJS, TypeORM, PostgreSQL 16, Redis 7 |
-| Auth | Passport JWT (access 1h + refresh 30d) |
-| Frontend | Next.js 15 App Router, React Query, Zustand, Tailwind CSS |
-| Forms | React Hook Form + Zod |
-| Infra | Docker Compose (dev/prod) |
+- Backend: NestJS, TypeORM, PostgreSQL y Redis.
+- Frontend: Next.js App Router, React Query, Zustand, Tailwind CSS.
+- Prefijo API: `/api/v1`.
 
-## Módulos del backend
+## Reglas críticas
 
-- **Auth** — login, refresh, me (`/api/v1/auth`)
-- **Users** — CRUD usuarios internos con roles (admin/agent/viewer)
-- **Contacts** — prospectos y alumnos con estados y fuentes
-- **Courses** — catálogo de cursos con modalidad y estado
-- **Interactions** — timeline de comunicaciones por contacto
-- **Enrollments** — inscripciones con máquina de estados y pagos
-
-## Convenciones importantes
-
-### Zod + React Hook Form
-Los campos numéricos en formularios se declaran como `z.string().optional()` (no `z.coerce.number()`). La conversión a número se hace manualmente en el `mutationFn` con `Number(value)`. Esto evita que TypeScript infiera `unknown` en el tipo del formulario al usar `zodResolver`.
-
-### TypeORM
-- `synchronize: true` solo en desarrollo (nunca en producción)
-- Entidades con UUID (`uuid_generate_v4()`)
-- Soft delete con `@DeleteDateColumn`
-- Relaciones cargadas por defecto en consultas de listado solo si son ligeras
-
-### API
-- Prefijo global: `/api/v1`
-- Todos los endpoints protegidos con `JwtAuthGuard` excepto `/auth/login`
-- `ValidationPipe` global con `whitelist: true` y `forbidNonWhitelisted: true`
-
-### Frontend
-- Rutas del dashboard bajo `(dashboard)` — el layout verifica auth
-- Axios instance en `src/lib/api.ts` con interceptor de refresh automático
-- Auth store en Zustand con `persist` (clave: `emeb-auth`)
-- Tipos compartidos en `src/types/index.ts`
-
-## Variables de entorno necesarias (backend)
-
-```bash
-NODE_ENV=development
-PORT=3001
-DATABASE_URL=postgresql://USER@localhost:5432/emeb_crm
-REDIS_URL=redis://localhost:6379
-JWT_SECRET=<secreto>
-JWT_REFRESH_SECRET=<secreto-refresh>
-FRONTEND_URL=http://localhost:3000
-```
-
-## Cómo correr en local (sin Docker)
-
-```bash
-# Prerequisitos (una sola vez)
-brew install postgresql@16 redis
-brew services start postgresql@16
-brew services start redis
-createdb emeb_crm
-
-# Backend
-cd apps/backend
-cp .env.example .env   # editar DATABASE_URL con tu usuario
-npm run start:dev
-
-# Frontend
-cd apps/frontend
-npm run dev
-
-# Seed de datos de prueba
-cd apps/backend
-npx ts-node src/database/seed.ts
-```
-
-## Próximos pasos pendientes
-
-- [ ] Notificaciones (correo / WhatsApp) al cambiar estado de inscripción
-- [ ] Dashboard con métricas (ingresos, conversión, actividad)
-- [ ] Integración WhatsApp Cloud API (Meta)
-- [ ] Roles y permisos granulares por módulo
-- [ ] Exportación CSV de contactos e inscripciones
+- No registrar tokens o secretos en chat, logs o repositorio.
+- El webhook `GET/POST /api/v1/whatsapp/webhook` debe permanecer público para Meta.
+- Los endpoints de consulta de plantillas y envío requieren JWT.
+- Todo mensaje entrante y todo envío confirmado debe quedar como interacción `whatsapp`.
+- Normalizar teléfonos a dígitos antes de consultar o enviar.
+- `synchronize` solo puede estar activo fuera de producción.

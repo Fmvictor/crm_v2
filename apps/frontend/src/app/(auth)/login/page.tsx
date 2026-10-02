@@ -38,7 +38,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Emeb CRM</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Emeb WhatsApp CRM</h1>
           <p className="mt-2 text-sm text-gray-500">Inicia sesión en tu cuenta</p>
         </div>
 

@@ -1,18 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ContactSource, ContactStatus } from '../entities/contact.entity';
+import { ContactStatus } from '../entities/contact.entity';
 
 export class FilterContactDto {
   @ApiPropertyOptional({ enum: ContactStatus })
   @IsEnum(ContactStatus)
   @IsOptional()
   status?: ContactStatus;
-
-  @ApiPropertyOptional({ enum: ContactSource })
-  @IsEnum(ContactSource)
-  @IsOptional()
-  source?: ContactSource;
 
   @ApiPropertyOptional()
   @IsString()

@@ -1,16 +1,20 @@
-import type { Metadata } from 'next';
-import { Geist } from 'next/font/google';
-import './globals.css';
-import { Providers } from './providers';
+import type { Metadata } from "next";
+import { Geist } from "next/font/google";
+import "./globals.css";
+import { Providers } from "./providers";
 
-const geist = Geist({ subsets: ['latin'], variable: '--font-geist' });
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
-  title: 'Emeb CRM',
-  description: 'Sistema CRM para la academia Emeb',
+  title: "Emeb WhatsApp CRM",
+  description: "Inbox de WhatsApp y pipeline de contactos de Emeb",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="es" className={`${geist.variable} h-full antialiased`}>
       <body className="h-full bg-gray-50 text-gray-900">

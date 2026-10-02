@@ -1,177 +1,171 @@
-'use client';
+"use client";
 
-import { useQuery } from '@tanstack/react-query';
-import { Users, BookOpen, ClipboardList, TrendingUp, MessageSquare, AtSign } from 'lucide-react';
-import api from '@/lib/api';
-import type { PaginatedResult, Enrollment, Interaction } from '@/types';
-import { cn } from '@/lib/utils';
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, MessageCircle, Users } from "lucide-react";
+import api from "@/lib/api";
+import { cn } from "@/lib/utils";
+import type {
+  Contact,
+  ContactStatus,
+  Interaction,
+  PaginatedResult,
+} from "@/types";
 
-function StatCard({ label, value, icon: Icon, color }: {
-  label: string; value: number; icon: React.ElementType; color: string;
-}) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex items-center gap-4">
-      <div className={cn('p-3 rounded-xl', color)}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <div>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
-        <p className="text-sm text-gray-500">{label}</p>
-      </div>
-    </div>
-  );
-}
+const statuses: ContactStatus[] = [
+  "new",
+  "contacted",
+  "qualified",
+  "enrolled",
+  "lost",
+];
+const statusLabels: Record<ContactStatus, string> = {
+  new: "Nuevos",
+  contacted: "Contactados",
+  qualified: "Calificados",
+  enrolled: "Inscritos",
+  lost: "Perdidos",
+};
+const statusColors: Record<ContactStatus, string> = {
+  new: "bg-gray-100 text-gray-700",
+  contacted: "bg-blue-100 text-blue-700",
+  qualified: "bg-yellow-100 text-yellow-700",
+  enrolled: "bg-green-100 text-green-700",
+  lost: "bg-red-100 text-red-700",
+};
 
-function formatDate(iso: string) {
-  return new Intl.DateTimeFormat('es-MX', {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  }).format(new Date(iso));
-}
-
-function formatAmount(amount: number | string, currency = 'EUR') {
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(Number(amount));
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 export default function DashboardPage() {
   const { data: contacts } = useQuery({
-    queryKey: ['contacts', 'summary'],
+    queryKey: ["contacts", "summary"],
     queryFn: () =>
-      api.get<PaginatedResult<{ id: string }>>('/contacts?limit=1').then((r) => r.data),
+      api
+        .get<PaginatedResult<Contact>>("/contacts?limit=100")
+        .then((response) => response.data),
   });
-
-  const { data: courses } = useQuery({
-    queryKey: ['courses', 'summary'],
+  const { data: interactions } = useQuery({
+    queryKey: ["interactions", "summary"],
     queryFn: () =>
-      api.get<PaginatedResult<{ id: string }>>('/courses?status=active&limit=1').then((r) => r.data),
+      api
+        .get<PaginatedResult<Interaction>>("/interactions?limit=8")
+        .then((response) => response.data),
   });
-
-  const { data: enrollments } = useQuery({
-    queryKey: ['enrollments', 'summary'],
-    queryFn: () =>
-      api.get<PaginatedResult<{ id: string }>>('/enrollments?limit=1').then((r) => r.data),
-  });
-
-  const { data: stats } = useQuery({
-    queryKey: ['enrollments', 'stats'],
-    queryFn: () => api.get('/enrollments/stats').then((r) => r.data),
-  });
-
-  const { data: recentPayments } = useQuery({
-    queryKey: ['enrollments', 'recent-paid'],
-    queryFn: () =>
-      api.get<PaginatedResult<Enrollment>>('/enrollments?paymentStatus=paid&limit=5').then((r) => r.data),
-  });
-
-  const { data: recentInteractions } = useQuery({
-    queryKey: ['interactions', 'dashboard'],
-    queryFn: () =>
-      api.get<PaginatedResult<Interaction>>('/interactions?limit=20').then((r) => r.data),
-  });
-
-  const totalCollected = stats?.byPayment
-    ? (stats.byStatus as any[]).reduce(
-        (sum: number, s: any) => sum + Number(s.totalCollected ?? 0),
-        0,
-      )
-    : 0;
-
-  const latestPayments = recentPayments?.data ?? [];
-  const latestInteractions = (recentInteractions?.data ?? [])
-    .filter((i) => i.type === 'whatsapp' || i.type === 'email')
-    .slice(0, 5);
+  const contactList = contacts?.data ?? [];
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          label="Contactos totales"
-          value={contacts?.total ?? 0}
-          icon={Users}
-          color="bg-blue-50 text-blue-600"
-        />
-        <StatCard
-          label="Cursos activos"
-          value={courses?.total ?? 0}
-          icon={BookOpen}
-          color="bg-green-50 text-green-600"
-        />
-        <StatCard
-          label="Inscripciones"
-          value={enrollments?.total ?? 0}
-          icon={ClipboardList}
-          color="bg-purple-50 text-purple-600"
-        />
-        <StatCard
-          label="Ingresos cobrados"
-          value={totalCollected}
-          icon={TrendingUp}
-          color="bg-yellow-50 text-yellow-600"
-        />
+      <div>
+        <p className="text-sm font-medium text-green-600">WhatsApp CRM</p>
+        <h1 className="text-2xl font-bold text-gray-900">Resumen</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Gestiona conversaciones y mueve cada contacto por el pipeline.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Últimos pagos */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-4">Últimos pagos</h2>
-          {latestPayments.length === 0 ? (
-            <p className="text-sm text-gray-400">Sin pagos registrados</p>
-          ) : (
-            <ul className="divide-y divide-gray-50">
-              {latestPayments.map((e) => (
-                <li key={e.id} className="py-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{e.contact?.name ?? '—'}</p>
-                    <p className="text-xs text-gray-500 truncate">{e.course?.name ?? '—'}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">{formatDate(e.createdAt)}</p>
-                  </div>
-                  <span className="text-sm font-bold text-green-700 shrink-0">
-                    {formatAmount(e.amountPaid ?? 0, e.currency ?? 'EUR')}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center gap-2 text-green-600">
+            <Users className="h-5 w-5" />
+            <span className="text-sm font-medium">Contactos</span>
+          </div>
+          <p className="text-3xl font-bold text-gray-900">
+            {contacts?.total ?? 0}
+          </p>
+          <Link
+            href="/contacts"
+            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-green-600"
+          >
+            Ver pipeline <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center gap-2 text-green-600">
+            <MessageCircle className="h-5 w-5" />
+            <span className="text-sm font-medium">Mensajes registrados</span>
+          </div>
+          <p className="text-3xl font-bold text-gray-900">
+            {interactions?.total ?? 0}
+          </p>
+          <Link
+            href="/whatsapp"
+            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-green-600"
+          >
+            Abrir WhatsApp <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm sm:col-span-2 xl:col-span-1">
+          <p className="mb-3 text-sm font-medium text-gray-500">
+            Pipeline actual
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {statuses.map((status) => (
+              <span
+                key={status}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-medium",
+                  statusColors[status],
+                )}
+              >
+                {statusLabels[status]}:{" "}
+                {
+                  contactList.filter((contact) => contact.status === status)
+                    .length
+                }
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <section className="rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <h2 className="font-semibold text-gray-900">Últimos mensajes</h2>
+          <Link
+            href="/whatsapp"
+            className="text-xs font-semibold text-green-600"
+          >
+            Ver todos
+          </Link>
+        </div>
+        {(interactions?.data ?? []).length === 0 ? (
+          <p className="p-8 text-sm text-gray-400">Todavía no hay mensajes.</p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {interactions?.data.map((item) => (
+              <Link
+                key={item.id}
+                href={`/contacts/${item.contactId}`}
+                className="flex items-start gap-3 px-6 py-4 hover:bg-gray-50"
+              >
+                <span className="mt-0.5 rounded-full bg-green-50 p-2 text-green-600">
+                  <MessageCircle className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-gray-900">
+                      {item.contact?.name ?? "Contacto"}
+                    </span>
+                    <time className="shrink-0 text-[11px] text-gray-400">
+                      {formatDate(item.createdAt)}
+                    </time>
                   </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Últimas interacciones */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-4">Últimas interacciones</h2>
-          {latestInteractions.length === 0 ? (
-            <p className="text-sm text-gray-400">Sin interacciones recientes</p>
-          ) : (
-            <ul className="divide-y divide-gray-50">
-              {latestInteractions.map((i) => {
-                const isWA = i.type === 'whatsapp';
-                const Icon = isWA ? MessageSquare : AtSign;
-                return (
-                  <li key={i.id} className="py-3 flex items-start gap-3">
-                    <div className={cn(
-                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border',
-                      isWA
-                        ? 'bg-green-50 border-green-100 text-green-600'
-                        : 'bg-blue-50 border-blue-100 text-blue-600',
-                    )}>
-                      <Icon className="h-3.5 w-3.5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {i.contact?.name ?? 'Desconocido'}
-                        </p>
-                        <time className="text-[11px] text-gray-400 shrink-0">{formatDate(i.createdAt)}</time>
-                      </div>
-                      <p className="text-xs text-gray-500 truncate mt-0.5">{i.notes}</p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </div>
+                  <span className="mt-1 block truncate text-sm text-gray-500">
+                    {item.notes}
+                  </span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
