@@ -7,6 +7,7 @@ import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { AiGuidanceConfiguration, AiLearning, Conversation, ConversationAiMode, PaginatedResult, PipelineStage } from '@/types';
 import { useAuthStore } from '@/store/auth.store';
+import { WhatsAppTemplateForm } from '@/components/whatsapp/WhatsAppTemplateForm';
 
 const stages: { id: PipelineStage; label: string; color: string }[] = [
   { id: 'new', label: 'Nuevo', color: 'border-gray-300' },
@@ -181,6 +182,15 @@ export default function PipelinePage() {
             {(selected.pipelineEvents ?? []).map((event) => <div key={event.id} className="text-[11px] text-center text-gray-400">{event.actor} movió la conversación a {stages.find((stage) => stage.id === event.toStage)?.label ?? event.toStage}{event.reason ? ` · ${event.reason}` : ''}</div>)}
           </div>
           <form onSubmit={(event) => { event.preventDefault(); if (text.trim()) send.mutate(text.trim()); }} className="p-4 border-t flex gap-2"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Enviar mensaje manual..." className="flex-1 border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /><button disabled={!text.trim() || send.isPending} className="rounded-xl bg-blue-600 text-white px-3 disabled:opacity-40"><Send className="h-4 w-4" /></button></form>
+          <div className="border-t p-4">
+            <WhatsAppTemplateForm
+              phone={selected.externalContactKey}
+              onSent={() => {
+                qc.invalidateQueries({ queryKey: ['conversation', selectedId] });
+                qc.invalidateQueries({ queryKey: ['conversations'] });
+              }}
+            />
+          </div>
         </div>
       )}
     </div>

@@ -231,6 +231,35 @@ export class WhatsAppService {
     }
   }
 
+  async getTemplates(): Promise<
+    { name: string; status: string; language: string }[]
+  > {
+    const apiUrl =
+      process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
+    const token = process.env.WHATSAPP_API_TOKEN ?? '';
+    const businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ?? '';
+
+    if (!token || !businessAccountId) {
+      this.logger.warn('WhatsApp no configurado');
+      return [];
+    }
+
+    const url = `${apiUrl}/${businessAccountId}/message_templates?limit=100&fields=name,status,language`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      const error = await res.text();
+      throw new Error(`WhatsApp templates API error ${res.status}: ${error}`);
+    }
+
+    const json = (await res.json()) as {
+      data: { name: string; status: string; language: string }[];
+    };
+    return json.data ?? [];
+  }
+
   async verifyWebhook(
     mode: string,
     token: string,
