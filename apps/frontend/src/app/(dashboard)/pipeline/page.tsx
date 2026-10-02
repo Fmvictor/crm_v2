@@ -72,7 +72,7 @@ function AiGuidancePanel() {
         </button>
       </div>
       <div className="mt-4 flex gap-2">
-        <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="Instrucciones para el asistente…" className="min-h-20 flex-1 rounded-lg border px-3 py-2 text-sm" />
+        <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="Instrucciones para el asistente…" className="min-h-20 flex-1 rounded-lg border px-3 py-2 text-sm text-black placeholder:text-gray-500" />
         <button onClick={() => saveInstruction.mutate()} disabled={!instruction.trim() || saveInstruction.isPending} className="self-end rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">Guardar</button>
       </div>
       {learnings.length > 0 && (

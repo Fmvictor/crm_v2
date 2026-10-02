@@ -65,6 +65,10 @@ export class AiConversationProcessor {
       await this.conversationsService.updateLead(conversationId, {
         optOut: true,
       });
+      await this.notifyHumanAttention(
+        conversation,
+        'El lead ha pedido que se detengan los mensajes.',
+      );
       return;
     }
 
@@ -133,11 +137,14 @@ export class AiConversationProcessor {
       );
     }
     if (decision.handoff) {
+      const handoffReason =
+        decision.handoffReason ?? 'Derivación solicitada por IA';
       await this.conversationsService.setMode(
         conversationId,
         ConversationAiMode.HUMAN,
-        decision.handoffReason ?? 'Derivación solicitada por IA',
+        handoffReason,
       );
+      await this.notifyHumanAttention(conversation, handoffReason);
     }
     if (decision.followUpDays && decision.optIn) {
       await this.conversationsService.scheduleFollowUp(
@@ -145,5 +152,55 @@ export class AiConversationProcessor {
         decision.followUpDays,
       );
     }
+  }
+
+  private async notifyHumanAttention(
+    conversation: {
+      contact?: { name?: string | null };
+      externalContactKey: string;
+    },
+    reason: string,
+  ): Promise<void> {
+    const phone = this.getHumanAttentionPhone();
+    if (!phone) return;
+    const leadName =
+      conversation.contact?.name
+        ?.replace(/[\r\n]+/g, ' ')
+        .trim()
+        .slice(0, 100) || 'Lead sin nombre';
+    const lastFourDigits =
+      conversation.externalContactKey.replace(/\D/g, '').slice(-4) || '----';
+    const safeReason = reason
+      .replace(/[\r\n]+/g, ' ')
+      .trim()
+      .slice(0, 160);
+
+    try {
+      await this.whatsAppService.sendText(
+        phone.slice(1),
+        `⚠️ Un lead requiere atención humana.\nLead: ${leadName} (…${lastFourDigits})\nMotivo: ${safeReason}\nAbre el Pipeline de WhatsApp en el CRM.`,
+        ConversationMessageActor.SYSTEM,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error(`No se pudo avisar al equipo: ${detail}`);
+    }
+  }
+
+  private getHumanAttentionPhone(): string | null {
+    const phone = process.env.HUMAN_ATTENTION_WHATSAPP_PHONE?.trim();
+    if (!phone) {
+      this.logger.warn(
+        'Aviso humano omitido: HUMAN_ATTENTION_WHATSAPP_PHONE no está configurado.',
+      );
+      return null;
+    }
+    if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+      this.logger.warn(
+        'Aviso humano omitido: HUMAN_ATTENTION_WHATSAPP_PHONE no tiene formato E.164.',
+      );
+      return null;
+    }
+    return phone;
   }
 }
