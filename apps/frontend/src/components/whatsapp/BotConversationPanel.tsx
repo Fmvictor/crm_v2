@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { useAuthStore } from "@/store/auth.store";
@@ -15,8 +15,8 @@ export function BotConversationPanel({
 }) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
-  const [memory, setMemory] = useState(contact.botMemory ?? "");
-  useEffect(() => setMemory(contact.botMemory ?? ""), [contact.botMemory]);
+  const [editedMemory, setEditedMemory] = useState<string | null>(null);
+  const memory = editedMemory ?? contact.botMemory ?? "";
 
   const { data: config } = useQuery({
     queryKey: ["bot-config"],
@@ -34,7 +34,10 @@ export function BotConversationPanel({
   });
   const saveMemory = useMutation({
     mutationFn: () => api.patch(`/whatsapp/contacts/${contact.id}/bot-memory`, { memory }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["contacts", contact.id] }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["contacts", contact.id] });
+      setEditedMemory(null);
+    },
   });
   const canEdit = user?.role === "admin" || user?.role === "agent";
   const drafts = jobs?.filter((job) => job.status === "draft" || job.status === "needs_human") ?? [];
@@ -87,7 +90,7 @@ export function BotConversationPanel({
         <textarea
           id={`bot-memory-${contact.id}`}
           value={memory}
-          onChange={(event) => setMemory(event.target.value)}
+          onChange={(event) => setEditedMemory(event.target.value)}
           maxLength={700}
           readOnly={!canEdit}
           rows={3}

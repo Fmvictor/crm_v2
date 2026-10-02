@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import type { BotLearning } from "@/types";
@@ -54,11 +54,14 @@ export function BotAdminPanel() {
     mutationFn: (paused: boolean) => api.patch("/whatsapp/bot/config", { paused }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bot-config"] }),
   });
-  const [instructions, setInstructions] = useState("");
-  useEffect(() => setInstructions(current?.text ?? ""), [current?.text]);
+  const [editedInstructions, setEditedInstructions] = useState<string | null>(null);
+  const instructions = editedInstructions ?? current?.text ?? "";
   const save = useMutation({
     mutationFn: () => api.put("/whatsapp/bot/instructions", { text: instructions }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bot-instructions"] }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["bot-instructions"] });
+      setEditedInstructions(null);
+    },
   });
   const pending = learnings?.filter((item) => item.status === "pending") ?? [];
 
@@ -73,7 +76,7 @@ export function BotAdminPanel() {
           </button>
         </div>
         <p className="mt-1 text-xs text-gray-500">Se guardan por versión. Los datos de cursos siempre se consultan en emeb.es.</p>
-        <textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} maxLength={5000} rows={5} className="mt-3 w-full rounded-lg border border-gray-200 p-3 text-sm" placeholder="Tono, límites y criterios de derivación" />
+        <textarea value={instructions} onChange={(event) => setEditedInstructions(event.target.value)} maxLength={5000} rows={5} className="mt-3 w-full rounded-lg border border-gray-200 p-3 text-sm" placeholder="Tono, límites y criterios de derivación" />
         <div className="mt-2 flex items-center gap-3">
           <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !instructions.trim() || instructions === (current?.text ?? "")} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">Guardar versión</button>
           {current && <span className="text-xs text-gray-500">Versión {current.version}</span>}

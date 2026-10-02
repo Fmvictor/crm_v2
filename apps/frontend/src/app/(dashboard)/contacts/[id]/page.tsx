@@ -195,7 +195,7 @@ export default function ContactDetailPage({
         </section>
 
         <aside className="space-y-4">
-          <BotConversationPanel contact={contact} onUseDraft={setMessage} />
+          <BotConversationPanel key={contact.id} contact={contact} onUseDraft={setMessage} />
           <WhatsAppTemplateForm
             contactId={contact.id}
             phone={contact.phone ?? ""}
