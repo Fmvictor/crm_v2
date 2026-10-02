@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Body, Query, UseGuards, HttpCode } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
+import type { Request } from 'express';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -35,7 +47,12 @@ export class WhatsAppController {
 
   @HttpCode(200)
   @Post('webhook')
-  handleWebhook(@Body() body: any) {
+  handleWebhook(
+    @Body() body: any,
+    @Req() request: RawBodyRequest<Request>,
+    @Headers('x-hub-signature-256') signature?: string,
+  ) {
+    this.whatsAppService.verifyWebhookSignature(request.rawBody, signature);
     void this.whatsAppService.handleWebhook(body);
     return { received: true };
   }
