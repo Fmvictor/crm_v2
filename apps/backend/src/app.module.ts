@@ -10,6 +10,7 @@ import { ContactsModule } from './contacts/contacts.module';
 import { InteractionsModule } from './interactions/interactions.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { AiModule } from './ai/ai.module';
+import { ConversationsModule } from './conversations/conversations.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { AiModule } from './ai/ai.module';
     InteractionsModule,
     WhatsAppModule,
     AiModule,
+    ConversationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
