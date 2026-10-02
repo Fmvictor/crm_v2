@@ -47,9 +47,13 @@ export function WhatsAppTemplateForm({
 
   const handleSend = () => {
     if (!selectedTemplate) return;
+    const template = templates.find(
+      (item) => item.name === selectedTemplate,
+    );
     mutation.mutate({
       to: phone,
       templateName: selectedTemplate,
+      languageCode: template?.language,
       params: params.filter(p => p.trim() !== ''),
     });
   };
