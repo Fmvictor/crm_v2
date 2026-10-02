@@ -9,6 +9,7 @@ import {
   DeleteDateColumn,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { PipelineStage } from '../../pipeline/pipeline-stage.enum';
 
 export enum ContactStatus {
   NEW = 'new',
@@ -31,6 +32,14 @@ export class Contact {
 
   @Column({ type: 'enum', enum: ContactStatus, default: ContactStatus.NEW })
   status: ContactStatus;
+
+  @Column({
+    type: 'enum',
+    enum: PipelineStage,
+    enumName: 'pipeline_stage_enum',
+    default: PipelineStage.NEW,
+  })
+  pipelineStage: PipelineStage;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
