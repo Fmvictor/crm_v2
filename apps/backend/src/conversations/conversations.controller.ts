@@ -99,23 +99,6 @@ export class ConversationsController {
     );
   }
 
-  @Patch(':id/lead')
-  updateLead(
-    @Param('id') id: string,
-    @Req() request: AuthenticatedRequest,
-    @Body()
-    body: {
-      courseInterest?: string;
-      language?: string;
-      optIn?: boolean;
-      optOut?: boolean;
-      summary?: string;
-    },
-  ) {
-    this.assertCanEdit(request.user);
-    return this.conversationsService.updateLead(id, body);
-  }
-
   @Post(':id/send')
   async send(
     @Param('id') id: string,
