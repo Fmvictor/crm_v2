@@ -7,11 +7,7 @@ import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { ContactsModule } from './contacts/contacts.module';
-import { CoursesModule } from './courses/courses.module';
 import { InteractionsModule } from './interactions/interactions.module';
-import { EnrollmentsModule } from './enrollments/enrollments.module';
-import { StripeModule } from './stripe/stripe.module';
-import { AutomationsModule } from './automations/automations.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { AiModule } from './ai/ai.module';
@@ -27,11 +23,7 @@ import { AiModule } from './ai/ai.module';
     UsersModule,
     AuthModule,
     ContactsModule,
-    CoursesModule,
     InteractionsModule,
-    EnrollmentsModule,
-    StripeModule,
-    AutomationsModule,
     WhatsAppModule,
     ConversationsModule,
     AiModule,
