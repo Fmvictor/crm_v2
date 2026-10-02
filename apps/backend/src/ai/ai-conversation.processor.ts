@@ -174,8 +174,27 @@ export class AiConversationProcessor {
       .replace(/[\r\n]+/g, ' ')
       .trim()
       .slice(0, 160);
+    const alertTemplate = process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE?.trim();
 
     try {
+      if (alertTemplate) {
+        try {
+          await this.whatsAppService.sendTemplate(
+            {
+              to: phone.slice(1),
+              templateName: alertTemplate,
+              params: [leadName, lastFourDigits, safeReason],
+            },
+            ConversationMessageActor.SYSTEM,
+          );
+          return;
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `No se pudo enviar la plantilla de aviso; se intenta texto: ${detail}`,
+          );
+        }
+      }
       await this.whatsAppService.sendText(
         phone.slice(1),
         `⚠️ Un lead requiere atención humana.\nLead: ${leadName} (…${lastFourDigits})\nMotivo: ${safeReason}\nAbre el Pipeline de WhatsApp en el CRM.`,

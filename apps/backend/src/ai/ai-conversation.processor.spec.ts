@@ -7,9 +7,12 @@ describe('AiConversationProcessor', () => {
   const humanAttentionPhone = '+34600000000';
   const previousHumanAttentionPhone =
     process.env.HUMAN_ATTENTION_WHATSAPP_PHONE;
+  const previousHumanAttentionTemplate =
+    process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE;
 
   beforeEach(() => {
     process.env.HUMAN_ATTENTION_WHATSAPP_PHONE = humanAttentionPhone;
+    delete process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE;
   });
 
   afterAll(() => {
@@ -17,6 +20,11 @@ describe('AiConversationProcessor', () => {
       delete process.env.HUMAN_ATTENTION_WHATSAPP_PHONE;
     else
       process.env.HUMAN_ATTENTION_WHATSAPP_PHONE = previousHumanAttentionPhone;
+    if (previousHumanAttentionTemplate === undefined)
+      delete process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE;
+    else
+      process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE =
+        previousHumanAttentionTemplate;
   });
 
   it('sends a handoff message before pausing the conversation for a person', async () => {
@@ -228,6 +236,67 @@ describe('AiConversationProcessor', () => {
       'conversation-id',
       ConversationAiMode.HUMAN,
       'Solicita una persona',
+    );
+  });
+
+  it('uses the configured Meta template for an alert', async () => {
+    process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE = 'alerta_atencion_humana';
+    const whatsAppService = {
+      sendText: jest.fn(),
+      sendTemplate: jest.fn().mockResolvedValue(undefined),
+    };
+    const processor = new AiConversationProcessor(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      whatsAppService as any,
+    );
+
+    await (processor as any).notifyHumanAttention(
+      {
+        externalContactKey: '34600000004',
+        contact: { name: 'Lead plantilla' },
+      },
+      'Solicita una persona',
+    );
+
+    expect(whatsAppService.sendTemplate).toHaveBeenCalledWith(
+      {
+        to: '34600000000',
+        templateName: 'alerta_atencion_humana',
+        params: ['Lead plantilla', '0004', 'Solicita una persona'],
+      },
+      'system',
+    );
+    expect(whatsAppService.sendText).not.toHaveBeenCalled();
+  });
+
+  it('falls back to text while the Meta template cannot be used', async () => {
+    process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE = 'alerta_atencion_humana';
+    const whatsAppService = {
+      sendText: jest.fn().mockResolvedValue(undefined),
+      sendTemplate: jest
+        .fn()
+        .mockRejectedValue(new Error('Plantilla pendiente')),
+    };
+    const processor = new AiConversationProcessor(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      whatsAppService as any,
+    );
+
+    await (processor as any).notifyHumanAttention(
+      { externalContactKey: '34600000005', contact: { name: 'Lead respaldo' } },
+      'Solicita una persona',
+    );
+
+    expect(whatsAppService.sendText).toHaveBeenCalledWith(
+      '34600000000',
+      '⚠️ Un lead requiere atención humana.\nLead: Lead respaldo (…0005)\nMotivo: Solicita una persona\nAbre el Pipeline de WhatsApp en el CRM.',
+      'system',
     );
   });
 });
