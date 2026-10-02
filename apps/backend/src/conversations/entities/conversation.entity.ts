@@ -14,29 +14,62 @@ import { ConversationMessage } from './conversation-message.entity';
 import { PipelineEvent } from './pipeline-event.entity';
 import { PipelineStage } from '../../pipeline/pipeline-stage.enum';
 
-export enum ConversationChannel { WHATSAPP = 'whatsapp' }
-export enum ConversationAiMode { AUTO = 'auto', PAUSED = 'paused', HUMAN = 'human' }
-export enum ConversationStatus { OPEN = 'open', CLOSED = 'closed' }
+export enum ConversationChannel {
+  WHATSAPP = 'whatsapp',
+}
+export enum ConversationAiMode {
+  AUTO = 'auto',
+  PAUSED = 'paused',
+  HUMAN = 'human',
+}
+export enum ConversationStatus {
+  OPEN = 'open',
+  CLOSED = 'closed',
+}
 
 @Entity('conversations')
-@Index('IDX_conversations_channel_contact_key', ['channel', 'externalContactKey'], { unique: true })
+@Index(
+  'IDX_conversations_channel_contact_key',
+  ['channel', 'externalContactKey'],
+  { unique: true },
+)
 export class Conversation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'enum', enum: ConversationChannel, enumName: 'conversation_channel_enum', default: ConversationChannel.WHATSAPP })
+  @Column({
+    type: 'enum',
+    enum: ConversationChannel,
+    enumName: 'conversation_channel_enum',
+    default: ConversationChannel.WHATSAPP,
+  })
   channel: ConversationChannel;
 
   @Column({ type: 'varchar', length: 80 })
   externalContactKey: string;
 
-  @Column({ type: 'enum', enum: ConversationStatus, enumName: 'conversation_status_enum', default: ConversationStatus.OPEN })
+  @Column({
+    type: 'enum',
+    enum: ConversationStatus,
+    enumName: 'conversation_status_enum',
+    default: ConversationStatus.OPEN,
+  })
   status: ConversationStatus;
 
-  @Column({ type: 'enum', enum: ConversationAiMode, enumName: 'conversation_ai_mode_enum', default: ConversationAiMode.AUTO })
+  @Column({
+    type: 'enum',
+    enum: ConversationAiMode,
+    enumName: 'conversation_ai_mode_enum',
+    default: ConversationAiMode.PAUSED,
+  })
   aiMode: ConversationAiMode;
 
-  @Column({ type: 'enum', enum: PipelineStage, enumName: 'pipeline_stage_enum', default: PipelineStage.NEW })
+  @Column({
+    type: 'enum',
+    enum: PipelineStage,
+    enumName: 'pipeline_stage_enum',
+    default: PipelineStage.NEW,
+  })
   pipelineStage: PipelineStage;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
