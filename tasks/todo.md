@@ -10,5 +10,5 @@
 ## Punto de control
 
 - [x] Subir la rama de integración. La rama parte de `b74c8c2` e incluye la reestructuración local como primer commit.
-- [ ] Abrir la solicitud de cambios en GitHub. La integración de Codex no tiene permiso para crearla; hace falta autorizar ese acceso o abrirla con una sesión de GitHub.
+- [ ] Desplegar manualmente tras aplicar la migración SQL y configurar el secreto de Meta. La fusión en `main` no activa el despliegue.
 - [ ] Validar manualmente en un entorno de prueba antes de activar envíos automáticos.

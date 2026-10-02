@@ -2,10 +2,11 @@
 
 ## Antes de arrancar
 
-1. Revisar los dos bloques de cambios de esta rama: primero la reestructuración local previa del CRM y después el asistente de IA. Confirmar que la rama sigue actualizada con `main` antes de fusionarla.
+1. Revisar los dos bloques de cambios de esta rama: primero la reestructuración local previa del CRM y después el asistente de IA. La fusión en `main` no despliega: el workflow queda limitado a ejecución manual.
 2. Guardar una copia de seguridad de PostgreSQL y ejecutar `apps/backend/migrations/20261002_whatsapp_interaction_metadata.sql` una sola vez. La tabla `bot_control` queda creada con `paused = true`.
-3. Completar `.env` a partir de `.env.example`. Configurar `WHATSAPP_APP_SECRET` con el secreto de la aplicación de Meta, `OPENAI_API_KEY` y las variables existentes del CRM. Nunca guardar los valores en Git.
+3. Completar el `.env` del servidor a partir de `.env.example`. Configurar `WHATSAPP_APP_SECRET` con el secreto de la aplicación de Meta antes de reiniciar el backend; configurar `OPENAI_API_KEY` antes de usar borradores o respuestas automáticas. Nunca guardar los valores en Git.
 4. Comprobar que el webhook de Meta apunta a `/api/v1/whatsapp/webhook` y entrega `x-hub-signature-256`. El backend rechazará peticiones sin firma válida.
+5. Ejecutar manualmente el workflow **Deploy to server (manual)** solo después de completar los pasos anteriores.
 
 ## Despliegue gradual
 
