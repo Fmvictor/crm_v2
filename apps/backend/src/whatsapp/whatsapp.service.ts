@@ -1,4 +1,10 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ContactsService } from '../contacts/contacts.service';
 import {
@@ -10,6 +16,11 @@ import {
 import { InteractionsService } from '../interactions/interactions.service';
 import { SendTemplateDto } from './dto/send-template.dto';
 import { BotJobsService } from './bot-jobs.service';
+import { ConversationsService } from '../conversations/conversations.service';
+import {
+  ConversationMessageActor,
+  ConversationMessageDirection,
+} from '../conversations/entities/conversation-message.entity';
 
 export interface WhatsAppTemplate {
   name: string;
@@ -44,6 +55,8 @@ export class WhatsAppService {
     private readonly contactsService: ContactsService,
     private readonly interactionsService: InteractionsService,
     private readonly botJobsService: BotJobsService,
+    @Inject(forwardRef(() => ConversationsService))
+    private readonly conversationsService: ConversationsService,
   ) {}
 
   async sendTemplate(options: SendTemplateDto, createdById?: string) {
@@ -273,8 +286,25 @@ export class WhatsAppService {
           ? new Date(timestampSeconds * 1000)
           : undefined,
     });
+    if (!interactionId) return;
+
+    const conversation = await this.conversationsService.findOrCreate(
+      contact,
+      phone,
+    );
+    await this.conversationsService.recordMessage(conversation, {
+      externalMessageId: message.id,
+      direction: ConversationMessageDirection.INBOUND,
+      actor: ConversationMessageActor.LEAD,
+      body: text,
+      messageType: message.type ?? 'text',
+      metadata: { provider: 'meta' },
+      providerTimestamp:
+        Number.isFinite(timestampSeconds) && timestampSeconds > 0
+          ? new Date(timestampSeconds * 1000)
+          : null,
+    });
     if (
-      interactionId &&
       process.env.BOT_MODE !== 'off' &&
       (process.env.BOT_MODE === 'draft' || process.env.BOT_MODE === 'auto')
     ) {
@@ -346,6 +376,24 @@ export class WhatsAppService {
           },
           { source, externalMessageId, createdById },
         );
+      const conversation = await this.conversationsService.findOrCreate(
+        contact,
+        phone,
+      );
+      await this.conversationsService.recordMessage(conversation, {
+        externalMessageId,
+        direction: ConversationMessageDirection.OUTBOUND,
+        actor:
+          source === InteractionSource.BOT
+            ? ConversationMessageActor.AI
+            : source === InteractionSource.HUMAN
+              ? ConversationMessageActor.AGENT
+              : ConversationMessageActor.SYSTEM,
+        body: notes,
+        messageType: notes.startsWith('WhatsApp enviado (plantilla:')
+          ? 'template'
+          : 'text',
+      });
       if (source === InteractionSource.HUMAN) {
         await this.botJobsService.resolveForContact(contact.id);
       }

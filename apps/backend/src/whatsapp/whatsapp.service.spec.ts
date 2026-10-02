@@ -15,6 +15,10 @@ describe('WhatsAppService webhook', () => {
     updateDeliveryStatus: jest.fn(),
   };
   const jobs = { enqueue: jest.fn() };
+  const conversations = {
+    findOrCreate: jest.fn(),
+    recordMessage: jest.fn(),
+  };
   let service: WhatsAppService;
 
   beforeEach(() => {
@@ -25,6 +29,7 @@ describe('WhatsAppService webhook', () => {
       contacts as any,
       interactions as any,
       jobs as any,
+      conversations as any,
     );
   });
 
@@ -57,6 +62,7 @@ describe('WhatsAppService webhook', () => {
   it('registra el ID de Meta y su marca temporal para deduplicar', async () => {
     contacts.findOrCreateWhatsApp.mockResolvedValue({ id: 'contact-1' });
     interactions.createIncomingOnce.mockResolvedValue('interaction-1');
+    conversations.findOrCreate.mockResolvedValue({ id: 'conversation-1' });
     await service.handleWebhook({
       entry: [
         {
@@ -85,6 +91,13 @@ describe('WhatsAppService webhook', () => {
       messageTimestamp: new Date(1760000000 * 1000),
     });
     expect(jobs.enqueue).toHaveBeenCalledTimes(1);
+    expect(conversations.recordMessage).toHaveBeenCalledWith(
+      { id: 'conversation-1' },
+      expect.objectContaining({
+        externalMessageId: 'wamid.123',
+        body: 'Hola',
+      }),
+    );
   });
 
   it('no crea otro trabajo cuando Meta repite el mensaje', async () => {
@@ -92,6 +105,7 @@ describe('WhatsAppService webhook', () => {
     interactions.createIncomingOnce
       .mockResolvedValueOnce('interaction-1')
       .mockResolvedValueOnce(null);
+    conversations.findOrCreate.mockResolvedValue({ id: 'conversation-1' });
     const webhook = {
       entry: [
         {
@@ -120,6 +134,7 @@ describe('WhatsAppService webhook', () => {
   it('envía una imagen directamente a revisión humana', async () => {
     contacts.findOrCreateWhatsApp.mockResolvedValue({ id: 'contact-1' });
     interactions.createIncomingOnce.mockResolvedValue('interaction-1');
+    conversations.findOrCreate.mockResolvedValue({ id: 'conversation-1' });
     await service.handleWebhook({
       entry: [
         {

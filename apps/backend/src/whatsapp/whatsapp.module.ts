@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { ContactsModule } from '../contacts/contacts.module';
@@ -8,11 +8,13 @@ import { BotJob } from './entities/bot-job.entity';
 import { BotJobsService } from './bot-jobs.service';
 import { BotInstruction } from './entities/bot-instruction.entity';
 import { BotLearning } from './entities/bot-learning.entity';
+import { ConversationsModule } from '../conversations/conversations.module';
 
 @Module({
   imports: [
     ContactsModule,
     InteractionsModule,
+    forwardRef(() => ConversationsModule),
     TypeOrmModule.forFeature([BotJob, BotInstruction, BotLearning]),
   ],
   controllers: [WhatsAppController],
