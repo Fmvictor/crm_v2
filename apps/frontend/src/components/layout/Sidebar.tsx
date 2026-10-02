@@ -1,37 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import {
-  LayoutDashboard,
-  Users,
-  BookOpen,
-  ClipboardList,
-  MessageSquare,
-  LogOut,
-  GraduationCap,
-  CreditCard,
-  Zap,
-  Database,
-  Kanban,
-} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { GraduationCap, Kanban, LogOut } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
-import { cn } from '@/lib/utils';
 
 const nav = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/contacts', label: 'Contactos', icon: Users },
-  { href: '/courses', label: 'Cursos', icon: BookOpen },
-  { href: '/enrollments', label: 'Inscripciones', icon: ClipboardList },
-  { href: '/interactions', label: 'Interacciones', icon: MessageSquare },
   { href: '/pipeline', label: 'Pipeline WhatsApp', icon: Kanban },
-  { href: '/pagos', label: 'Pagos', icon: CreditCard },
-  { href: '/automatizaciones', label: 'Automatizaciones', icon: Zap },
-  { href: '/database', label: 'Base de datos', icon: Database },
 ];
 
 export function Sidebar() {
-  const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
 
@@ -54,12 +32,7 @@ export function Sidebar() {
           <Link
             key={href}
             href={href}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-              pathname === href || pathname.startsWith(href + '/')
-                ? 'bg-blue-50 text-blue-700'
-                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900',
-            )}
+            className="flex items-center gap-3 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700"
           >
             <Icon className="h-4 w-4 flex-shrink-0" />
             {label}

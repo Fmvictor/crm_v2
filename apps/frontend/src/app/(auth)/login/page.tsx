@@ -28,7 +28,7 @@ export default function LoginPage() {
     setError('');
     try {
       await login(data.email, data.password);
-      router.push('/dashboard');
+      router.push('/pipeline');
     } catch {
       setError('Email o contraseña incorrectos');
     }
