@@ -35,7 +35,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-gray-50 px-4 py-8">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Emeb CRM</h1>
@@ -44,7 +44,7 @@ export default function LoginPage() {
 
         <form
           onSubmit={handleSubmit(onSubmit)}
-          className="bg-white shadow-sm rounded-2xl p-8 space-y-5 border border-gray-100"
+          className="space-y-5 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8"
         >
           {error && (
             <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">

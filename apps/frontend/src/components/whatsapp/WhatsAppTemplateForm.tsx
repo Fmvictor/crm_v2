@@ -17,6 +17,13 @@ interface WhatsAppTemplateFormProps {
   onSent: () => void;
 }
 
+interface SendTemplateRequest {
+  to: string;
+  templateName: string;
+  languageCode?: string;
+  params: string[];
+}
+
 export function WhatsAppTemplateForm({
   phone,
   onSent,
@@ -31,7 +38,7 @@ export function WhatsAppTemplateForm({
   });
 
   const mutation = useMutation({
-    mutationFn: (body: any) => api.post('/whatsapp/send-template', body),
+    mutationFn: (body: SendTemplateRequest) => api.post('/whatsapp/send-template', body),
     onSuccess: () => {
       setStatus('success');
       setSelectedTemplate('');
@@ -70,14 +77,14 @@ export function WhatsAppTemplateForm({
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="bg-gray-50 border-b border-gray-100 px-5 py-3">
+      <div className="border-b border-gray-100 bg-gray-50 px-4 py-3 sm:px-5">
         <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
           <Send className="h-4 w-4 text-green-600" />
           Enviar Plantilla de WhatsApp
         </h3>
       </div>
 
-      <div className="p-5 space-y-4">
+      <div className="space-y-4 p-4 sm:p-5">
         <div>
           <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">
             Seleccionar Plantilla
@@ -111,17 +118,20 @@ export function WhatsAppTemplateForm({
                   value={val}
                   onChange={(e) => updateParam(idx, e.target.value)}
                   placeholder={`Valor variable {{${idx + 1}}}`}
-                  className="flex-1 text-sm text-gray-900 placeholder:text-gray-900 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
+                  className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-green-500"
                 />
                 <button
+                  type="button"
                   onClick={() => removeParam(idx)}
-                  className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                  className="shrink-0 p-2 text-gray-400 transition-colors hover:text-red-600"
+                  aria-label={`Eliminar variable ${idx + 1}`}
                 >
                   &times;
                 </button>
               </div>
             ))}
             <button
+              type="button"
               onClick={addParam}
               className="text-xs font-semibold text-green-600 hover:text-green-700"
             >
