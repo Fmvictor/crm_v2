@@ -1,5 +1,6 @@
 services:
   backend:
+    init: true
     image: emeb-crm-backend:node24-maint-20261018
     build:
       context: ./apps/backend
@@ -19,6 +20,7 @@ services:
       - emeb-network
 
   frontend:
+    init: true
     image: emeb-crm-frontend:node24-maint-20261018
     build:
       context: ./apps/frontend
@@ -39,7 +41,7 @@ services:
       - emeb-network
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine
     container_name: emeb-postgres
     restart: unless-stopped
 
@@ -58,7 +60,7 @@ services:
       - emeb-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: emeb-redis
     restart: unless-stopped
 
