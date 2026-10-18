@@ -1,6 +1,7 @@
 # ---- Build stage ----
-FROM node:20-alpine AS builder
+FROM node:24.22.0-alpine AS builder
 WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY package*.json ./
 RUN npm ci
@@ -11,7 +12,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 
 # ---- Production stage ----
-FROM node:20-alpine AS production
+FROM node:24.22.0-alpine AS production
 WORKDIR /app
 
 ENV NODE_ENV=production
