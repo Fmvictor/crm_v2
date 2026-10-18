@@ -1,7 +1,7 @@
 services:
   backend:
     init: true
-    image: emeb-crm-backend:node24-maint-20261018
+    image: emeb-crm-backend:security-20261018
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
@@ -21,7 +21,7 @@ services:
 
   frontend:
     init: true
-    image: emeb-crm-frontend:node24-maint-20261018
+    image: emeb-crm-frontend:security-20261018
     build:
       context: ./apps/frontend
       dockerfile: Dockerfile
