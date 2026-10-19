@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: crm-production
@@ -11,14 +15,26 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
+      - name: Check deployment configuration
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "::error::Missing repository secret: SSH_PRIVATE_KEY"
+            exit 1
+          fi
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 37.27.41.177
+          fingerprint: SHA256:9imM898/0vNe+axIFVna6rKXFUL0XPWOjxrtp37MMBE
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 25m
@@ -42,3 +58,13 @@ jobs:
               docker compose build
               docker compose up -d --no-build
             fi
+
+      - name: Verify production
+        run: |
+          set -eu
+          for path in /login /api/v1; do
+            status=$(curl --fail --silent --show-error --max-time 20 --retry 5 --retry-delay 3 --retry-all-errors -o /dev/null -w '%{http_code}' "https://crm.emeb.es$path")
+            test "$status" = 200
+          done
+          status=$(curl --silent --show-error --max-time 20 -o /dev/null -w '%{http_code}' https://crm.emeb.es/api/v1/conversations)
+          test "$status" = 401
