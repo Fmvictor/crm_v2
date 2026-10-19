@@ -11,6 +11,7 @@ import { AiConversationProcessor } from './ai-conversation.processor';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ConversationAiMode } from '../conversations/entities/conversation.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { AiGuidanceService } from './ai-guidance.service';
 
 @Injectable()
 export class AiQueueService implements OnModuleInit, OnModuleDestroy {
@@ -18,6 +19,7 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
   private redis: Redis | null = null;
   private running = false;
   private timer: NodeJS.Timeout | null = null;
+  private processingFollowUps = false;
 
   constructor(
     private readonly processor: AiConversationProcessor,
@@ -25,6 +27,7 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
     private readonly conversationsService: ConversationsService,
     @Inject(forwardRef(() => WhatsAppService))
     private readonly whatsAppService: WhatsAppService,
+    private readonly guidance: AiGuidanceService,
   ) {}
 
   onModuleInit() {
@@ -70,18 +73,37 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async processFollowUps() {
-    const due = await this.conversationsService.findDueFollowUps();
-    for (const conversation of due) {
-      if (
-        conversation.aiMode !== ConversationAiMode.AUTO ||
-        !conversation.optInAt
-      )
-        continue;
-      if (!this.isAllowedPhone(conversation.contact.phone)) continue;
-      const sent =
-        await this.whatsAppService.sendConfiguredFollowUp(conversation);
-      if (sent)
-        await this.conversationsService.markFollowUpSent(conversation.id);
+    if (this.processingFollowUps) return;
+    this.processingFollowUps = true;
+    try {
+      if (await this.guidance.isPaused()) return;
+      const due = await this.conversationsService.findDueFollowUps();
+      for (const conversation of due) {
+        if (
+          conversation.aiMode !== ConversationAiMode.AUTO ||
+          !conversation.optInAt
+        )
+          continue;
+        if (!this.isAllowedPhone(conversation.contact.phone)) continue;
+        if (await this.guidance.isPaused()) break;
+        try {
+          const sent =
+            await this.whatsAppService.sendConfiguredFollowUp(conversation);
+          if (sent)
+            await this.conversationsService.markFollowUpSent(conversation.id);
+        } catch {
+          // No registrar la respuesta del proveedor: puede contener datos personales.
+          this.logger.error(
+            'Fallo de seguimiento automático; se conserva pendiente.',
+          );
+        }
+      }
+    } catch {
+      this.logger.error(
+        'No se pudo revisar la cola de seguimientos automáticos.',
+      );
+    } finally {
+      this.processingFollowUps = false;
     }
   }
 

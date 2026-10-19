@@ -5,9 +5,14 @@ on:
     branches:
       - main
 
+concurrency:
+  group: crm-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Deploy via SSH
@@ -16,7 +21,24 @@ jobs:
           host: 37.27.41.177
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 25m
           script: |
+            set -eu
             cd /opt/emeb-crm
-            git pull origin main
-            docker compose up -d --build --force-recreate
+            test -z "$(git status --porcelain)"
+            git fetch origin main
+            target="${{ github.sha }}"
+            if [ "$(git rev-parse origin/main)" != "$target" ]; then
+              echo "A newer main commit is waiting for deployment."
+              exit 0
+            fi
+            git merge-base --is-ancestor HEAD "$target"
+            previous=$(git rev-parse HEAD)
+            git switch main
+            git merge --ff-only "$target"
+            if git diff --quiet "$previous" HEAD -- apps/backend apps/frontend docker-compose.yml; then
+              echo "Application already deployed; repository aligned with main."
+            else
+              docker compose build
+              docker compose up -d --no-build
+            fi
