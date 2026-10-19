@@ -34,7 +34,7 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 37.27.41.177
-          fingerprint: SHA256:9imM898/0vNe+axIFVna6rKXFUL0XPWOjxrtp37MMBE
+          fingerprint: SHA256:jpXOO18pw1lhnxMv0Hny0v/3gd1Of2uop81ev8zi6OU
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 25m
