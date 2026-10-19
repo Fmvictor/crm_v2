@@ -58,3 +58,13 @@ jobs:
               docker compose build
               docker compose up -d --no-build
             fi
+
+      - name: Verify production
+        run: |
+          set -eu
+          for path in /login /api/v1; do
+            status=$(curl --fail --silent --show-error --max-time 20 --retry 5 --retry-delay 3 --retry-all-errors -o /dev/null -w '%{http_code}' "https://crm.emeb.es$path")
+            test "$status" = 200
+          done
+          status=$(curl --silent --show-error --max-time 20 -o /dev/null -w '%{http_code}' https://crm.emeb.es/api/v1/conversations)
+          test "$status" = 401
