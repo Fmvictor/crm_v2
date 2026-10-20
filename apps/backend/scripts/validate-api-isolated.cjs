@@ -291,12 +291,101 @@ async function main() {
   assert.equal(ack.aiMode, 'human');
   assert.equal(ack.attentionPending, false);
   assert.equal(transportCalls, 1);
+  const viewerHeaders = { ...auth, Authorization: `Bearer ${viewerToken}` };
+  assert.equal(
+    (await request('/ai-usage', { headers: viewerHeaders })).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request('/ai-usage/budget', {
+        method: 'PATCH',
+        headers: viewerHeaders,
+        body: JSON.stringify({ monthlyLimitEur: 100, version: 0 }),
+      })
+    ).status,
+    403,
+  );
+  let budget = await (await request('/ai-usage', { headers: auth })).json();
+  assert.equal(
+    (
+      await request('/ai-usage/budget', {
+        method: 'PATCH',
+        headers: auth,
+        body: JSON.stringify({ monthlyLimitEur: 0, version: budget.version }),
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await request('/ai-guidance/paused', {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ paused: false }),
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await request('/ai-usage/budget', {
+        method: 'PATCH',
+        headers: auth,
+        body: JSON.stringify({ monthlyLimitEur: 100, version: budget.version }),
+      })
+    ).status,
+    409,
+  );
+  budget = await (await request('/ai-usage', { headers: auth })).json();
+  assert.equal(
+    (
+      await request('/ai-usage/budget', {
+        method: 'PATCH',
+        headers: auth,
+        body: JSON.stringify({ monthlyLimitEur: 100, version: budget.version }),
+      })
+    ).status,
+    200,
+  );
+  const guidance = await (
+    await request('/ai-guidance', { headers: auth })
+  ).json();
+  assert.equal(guidance.paused, true);
+  assert.equal(
+    (
+      await request('/ai-usage/budget', {
+        method: 'PATCH',
+        headers: auth,
+        body: JSON.stringify({
+          monthlyLimitEur: '100',
+          version: budget.version + 1,
+        }),
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await request('/ai-guidance/paused', {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ paused: false }),
+      })
+    ).status,
+    201,
+  );
   await db.destroy();
   await new Promise((resolve) => server.close(resolve));
   console.log(
     JSON.stringify(
       {
         api: true,
+        budgetRoles: true,
+        budgetConflict: true,
+        budgetBlocksResume: true,
+        budgetChangeKeepsPause: true,
+        explicitResume: true,
         signedStatusCallbacks: true,
         deliveryFailurePersistent: true,
         staleAcknowledgementRejected: true,

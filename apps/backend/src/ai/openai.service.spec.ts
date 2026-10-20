@@ -1,6 +1,28 @@
+import { AiUsageService } from './ai-usage.service';
 import { OpenAiService } from './openai.service';
 
 describe('OpenAiService', () => {
+  const usage = {
+    assertAvailable: jest.fn(),
+    reserve: jest.fn().mockResolvedValue('reservation'),
+    settle: jest.fn(),
+    uncertain: jest.fn(),
+    rejected: jest.fn(),
+  } as unknown as AiUsageService;
+  const withCount =
+    (transport: typeof fetch): typeof fetch =>
+    (url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+      (typeof url === 'string'
+        ? url
+        : url instanceof URL
+          ? url.href
+          : url.url
+      ).endsWith('/input_tokens')
+        ? Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ input_tokens: 100 }),
+          } as Response)
+        : transport(url, init);
   const originalFetch = global.fetch;
   const originalApiKey = process.env.OPENAI_API_KEY;
   const originalModel = process.env.OPENAI_MODEL;
@@ -39,7 +61,8 @@ describe('OpenAiService', () => {
       } as Response);
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    await new OpenAiService().decide({
+    global.fetch = withCount(global.fetch);
+    await new OpenAiService(usage).decide({
       messages: [{ direction: 'inbound', body: 'Hola' }],
       webContext: 'Contexto de prueba',
       currentStage: 'new',
@@ -80,7 +103,8 @@ describe('OpenAiService', () => {
       } as Response);
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    const decision = await new OpenAiService().decide({
+    global.fetch = withCount(global.fetch);
+    const decision = await new OpenAiService(usage).decide({
       messages: [
         { direction: 'inbound', body: 'Quiero saber el precio del CMB1' },
       ],
@@ -117,7 +141,8 @@ describe('OpenAiService', () => {
       } as Response);
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    await new OpenAiService().decide({
+    global.fetch = withCount(global.fetch);
+    await new OpenAiService(usage).decide({
       messages: [{ direction: 'inbound', body: 'Hola' }],
       webContext: 'FUENTE: https://www.emeb.es/fechas',
       currentStage: 'new',
@@ -154,7 +179,8 @@ describe('OpenAiService', () => {
             }),
           }),
       }) as unknown as typeof fetch;
-      const decision = await new OpenAiService().decide({
+      global.fetch = withCount(global.fetch);
+      const decision = await new OpenAiService(usage).decide({
         messages: [
           { direction: 'inbound', body: 'Confirma el descuento futuro' },
         ],
@@ -165,4 +191,142 @@ describe('OpenAiService', () => {
       expect(decision.handoffReason).toContain('sin evidencia');
     },
   );
+});
+
+describe('Control de consumo antes y después de OpenAI', () => {
+  const transport = global.fetch;
+  const key = process.env.OPENAI_API_KEY;
+  const context = {
+    messages: [{ direction: 'inbound', body: 'Hola' }],
+    webContext: 'Contexto sintético',
+    currentStage: 'new',
+  };
+  const accounting = () => ({
+    assertAvailable: jest.fn().mockResolvedValue(undefined),
+    reserve: jest.fn().mockResolvedValue('reserved'),
+    settle: jest.fn().mockResolvedValue(undefined),
+    uncertain: jest.fn().mockResolvedValue(undefined),
+    rejected: jest.fn().mockResolvedValue(undefined),
+  });
+  beforeEach(() => {
+    process.env.OPENAI_API_KEY = 'synthetic-test-key';
+  });
+  afterEach(() => {
+    global.fetch = transport;
+    if (key === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = key;
+  });
+  it('no hace peticiones al proveedor si el presupuesto está bloqueado', async () => {
+    const usage = accounting();
+    usage.assertAvailable.mockRejectedValue(new Error('blocked'));
+    global.fetch = jest.fn();
+    await expect(
+      new OpenAiService(usage as unknown as AiUsageService).decide(context),
+    ).rejects.toThrow('blocked');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+  it('no genera sin conteo válido o sin reserva disponible', async () => {
+    const usage = accounting();
+    const fetcher = jest
+      .fn<Promise<unknown>, [string, RequestInit]>()
+      .mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ input_tokens: 123 }),
+      });
+    global.fetch = fetcher as unknown as typeof fetch;
+    usage.reserve.mockRejectedValue(new Error('no funds'));
+    await expect(
+      new OpenAiService(usage as unknown as AiUsageService).decide(context),
+    ).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(usage.reserve).toHaveBeenCalledWith(
+      expect.any(String),
+      123,
+      undefined,
+    );
+  });
+  it.each([400, 429, 500])(
+    'contabiliza el resultado HTTP %s sin reintentar',
+    async (status) => {
+      const usage = accounting();
+      const fetcher = jest
+        .fn<Promise<unknown>, [string, RequestInit]>()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ input_tokens: 123 }),
+        })
+        .mockResolvedValueOnce({ ok: false, status });
+      global.fetch = fetcher as unknown as typeof fetch;
+      await expect(
+        new OpenAiService(usage as unknown as AiUsageService).decide(context),
+      ).rejects.toThrow();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      if (status < 500)
+        expect(usage.rejected).toHaveBeenCalledWith(
+          'reserved',
+          status,
+          expect.any(Number),
+        );
+      else expect(usage.rejected).not.toHaveBeenCalled();
+      const count = JSON.parse(fetcher.mock.calls[0][1].body as string) as {
+        input: unknown;
+        text: unknown;
+      };
+      const generated = JSON.parse(fetcher.mock.calls[1][1].body as string) as {
+        input: unknown;
+        text: unknown;
+        max_output_tokens: number;
+        service_tier: string;
+      };
+      expect(count.input).toEqual(generated.input);
+      expect(count.text).toEqual(generated.text);
+      expect(generated.max_output_tokens).toBe(8192);
+      expect(generated.service_tier).toBe('default');
+    },
+  );
+  it('conserva la reserva tras un timeout y no intenta otra generación', async () => {
+    const usage = accounting();
+    const fetcher = jest
+      .fn<Promise<unknown>, [string, RequestInit]>()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ input_tokens: 123 }),
+      })
+      .mockRejectedValueOnce(new Error('timeout'));
+    global.fetch = fetcher as unknown as typeof fetch;
+    await expect(
+      new OpenAiService(usage as unknown as AiUsageService).decide(context),
+    ).rejects.toThrow('sin confirmar');
+    expect(usage.uncertain).toHaveBeenCalledWith(
+      'reserved',
+      undefined,
+      expect.any(Number),
+    );
+    expect(usage.rejected).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('registra el consumo aunque el texto generado no sea JSON válido', async () => {
+    const usage = accounting();
+    const fetcher = jest
+      .fn<Promise<unknown>, [string, RequestInit]>()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ input_tokens: 123 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            usage: { input_tokens: 123, output_tokens: 1 },
+            output_text: 'invalid json',
+          }),
+      });
+    global.fetch = fetcher as unknown as typeof fetch;
+    await expect(
+      new OpenAiService(usage as unknown as AiUsageService).decide(context),
+    ).rejects.toThrow('consumo registrado');
+    expect(usage.settle).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });

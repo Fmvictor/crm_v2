@@ -5,9 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, MessageCircle, Pause, Play, Send, UserRound } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { AiGuidanceConfiguration, AiLearning, Conversation, ConversationAiMode, PaginatedResult, PipelineStage } from '@/types';
+import type { AiGuidanceConfiguration, AiUsageSummary, AiLearning, Conversation, ConversationAiMode, PaginatedResult, PipelineStage } from '@/types';
 import { useAuthStore } from '@/store/auth.store';
 import { WhatsAppTemplateForm } from '@/components/whatsapp/WhatsAppTemplateForm';
+import { AiUsagePanel } from '@/components/ai/AiUsagePanel';
 import { DeliveryStatus } from '@/components/whatsapp/DeliveryStatus';
 
 const stages: { id: PipelineStage; label: string; color: string }[] = [
@@ -77,12 +78,18 @@ function AiGuidancePanel() {
   const qc = useQueryClient();
   const [instructionDraft, setInstructionDraft] = useState<string | null>(null);
   const { data: configuration } = useQuery({
+    refetchInterval: 15_000,
     queryKey: ['ai-guidance'],
     queryFn: () => api.get<AiGuidanceConfiguration>('/ai-guidance').then((response) => response.data),
   });
   const { data: learnings = [] } = useQuery({
     queryKey: ['ai-learnings', 'pending'],
     queryFn: () => api.get<AiLearning[]>('/ai-guidance/learnings?status=pending').then((response) => response.data),
+  });
+  const { data: usage } = useQuery({
+    queryKey: ['ai-usage'],
+    queryFn: () => api.get<AiUsageSummary>('/ai-usage').then(response => response.data),
+    refetchInterval: 15_000,
   });
   const instruction = instructionDraft ?? configuration?.instruction ?? '';
   const refresh = () => {
@@ -114,12 +121,14 @@ function AiGuidancePanel() {
         </div>
         <button
           onClick={() => setPaused.mutate(!configuration?.paused)}
-          disabled={setPaused.isPending || !configuration}
+          disabled={setPaused.isPending || !configuration || (configuration.paused && (!usage || usage.blocked))}
           className={cn('rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-50', configuration?.paused ? 'bg-green-600 text-white' : 'bg-amber-100 text-amber-800')}
         >
           {configuration?.paused ? 'Activar respuestas automáticas' : 'Pausar respuestas automáticas'}
         </button>
       </div>
+      {setPaused.isError && <p role="alert" className="mt-2 text-xs text-red-700">No se pudo cambiar la pausa. Revisa el consumo y actualiza antes de reintentar.</p>}
+      <AiUsagePanel />
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <textarea value={instruction} onChange={(event) => setInstructionDraft(event.target.value)} placeholder="Instrucciones para el asistente…" className="min-h-28 w-full flex-1 rounded-lg border px-3 py-2 text-sm text-black placeholder:text-gray-500" />
         <button onClick={() => saveInstruction.mutate()} disabled={!instruction.trim() || saveInstruction.isPending} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50 sm:self-end">Guardar</button>

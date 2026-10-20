@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AiBudgetBlockedError, AiUsageService } from './ai-usage.service';
+import { AI_PRICING } from './ai-pricing';
 
 export interface AiDecision {
   reply: string;
@@ -18,7 +20,10 @@ export interface AiDecision {
 export class OpenAiService {
   private readonly logger = new Logger(OpenAiService.name);
 
+  constructor(private readonly usage: AiUsageService) {}
+
   async decide(context: {
+    conversationId?: string;
     messages: { direction: string; body: string }[];
     webContext: string;
     currentStage: string;
@@ -40,87 +45,173 @@ export class OpenAiService {
       },
     ];
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      signal: AbortSignal.timeout(30_000),
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        store: false,
-        input,
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'emeb_whatsapp_decision',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              required: [
-                'reply',
-                'language',
-                'stage',
-                'courseInterest',
-                'summary',
-                'optIn',
-                'optOut',
-                'informationVerified',
-                'handoff',
-                'handoffReason',
-                'followUpDays',
-              ],
-              properties: {
-                reply: { type: 'string' },
-                language: { type: ['string', 'null'] },
-                stage: {
-                  type: ['string', 'null'],
-                  enum: [
-                    'new',
-                    'contacted',
-                    'qualified',
-                    'call_scheduled',
-                    'offer_sent',
-                    'deposit_requested',
-                    'nurture',
-                    'lost',
-                    null,
-                  ],
-                },
-                courseInterest: { type: ['string', 'null'] },
-                summary: { type: ['string', 'null'] },
-                optIn: { type: 'boolean' },
-                optOut: { type: 'boolean' },
-                informationVerified: { type: 'boolean' },
-                handoff: { type: 'boolean' },
-                handoffReason: { type: ['string', 'null'] },
-                followUpDays: {
-                  type: ['integer', 'null'],
-                  enum: [1, 3, 7, 14, null],
-                },
+    const request = {
+      model,
+      store: false,
+      input,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'emeb_whatsapp_decision',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: [
+              'reply',
+              'language',
+              'stage',
+              'courseInterest',
+              'summary',
+              'optIn',
+              'optOut',
+              'informationVerified',
+              'handoff',
+              'handoffReason',
+              'followUpDays',
+            ],
+            properties: {
+              reply: { type: 'string' },
+              language: { type: ['string', 'null'] },
+              stage: {
+                type: ['string', 'null'],
+                enum: [
+                  'new',
+                  'contacted',
+                  'qualified',
+                  'call_scheduled',
+                  'offer_sent',
+                  'deposit_requested',
+                  'nurture',
+                  'lost',
+                  null,
+                ],
+              },
+              courseInterest: { type: ['string', 'null'] },
+              summary: { type: ['string', 'null'] },
+              optIn: { type: 'boolean' },
+              optOut: { type: 'boolean' },
+              informationVerified: { type: 'boolean' },
+              handoff: { type: 'boolean' },
+              handoffReason: { type: ['string', 'null'] },
+              followUpDays: {
+                type: ['integer', 'null'],
+                enum: [1, 3, 7, 14, null],
               },
             },
           },
         },
-      }),
-    });
-    if (!response.ok) {
-      this.logger.warn(`OpenAI devolvió HTTP ${response.status}`);
-      throw new Error(`OpenAI API error ${response.status}`);
+      },
+    };
+    const countRequest = { model, input, text: request.text };
+    await this.usage.assertAvailable();
+    let counted: unknown;
+    try {
+      const response = await fetch(
+        'https://api.openai.com/v1/responses/input_tokens',
+        {
+          method: 'POST',
+          signal: AbortSignal.timeout(15_000),
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(countRequest),
+        },
+      );
+      if (!response.ok) throw new Error('Count rejected');
+      counted = ((await response.json()) as { input_tokens?: unknown })
+        .input_tokens;
+    } catch {
+      throw new AiBudgetBlockedError(
+        'No se pudo verificar el consumo de entrada; no se ha generado una respuesta.',
+      );
     }
-    const payload = (await response.json()) as {
+    if (typeof counted !== 'number')
+      throw new AiBudgetBlockedError('Conteo de entrada inválido.');
+    const reservation = await this.usage.reserve(
+      model,
+      counted,
+      context.conversationId,
+    );
+    const started = performance.now();
+    let payload: Record<string, unknown>;
+    try {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        signal: AbortSignal.timeout(30_000),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          ...request,
+          max_output_tokens: AI_PRICING.maxOutputTokens,
+          service_tier: 'default',
+        }),
+      });
+      if (!response.ok) {
+        this.logger.warn(`OpenAI devolvió HTTP ${response.status}`);
+        if ([400, 401, 403, 404, 422, 429].includes(response.status)) {
+          await this.usage.rejected(
+            reservation,
+            response.status,
+            performance.now() - started,
+          );
+          throw new AiBudgetBlockedError(
+            'OpenAI rechazó la llamada; requiere revisión.',
+          );
+        }
+        await this.usage.uncertain(
+          reservation,
+          response.status,
+          performance.now() - started,
+        );
+        throw new AiBudgetBlockedError(
+          'Resultado de IA incierto; revisar sin repetir la llamada.',
+        );
+      }
+      payload = (await response.json()) as Record<string, unknown>;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+        throw new Error('Invalid response');
+      await this.usage.settle(
+        reservation,
+        payload,
+        response.status,
+        performance.now() - started,
+      );
+    } catch (error) {
+      // Si el proceso o el transporte fallan, nunca liberar una reserva a ciegas.
+      await this.usage.uncertain(
+        reservation,
+        undefined,
+        performance.now() - started,
+      );
+      if (error instanceof AiBudgetBlockedError) throw error;
+      throw new AiBudgetBlockedError(
+        'Resultado de IA sin confirmar; se conserva la reserva para revisión.',
+      );
+    }
+    const result = payload as {
       output_text?: string;
       output?: Array<{ type?: string; content?: Array<{ text?: string }> }>;
     };
     const raw =
-      payload.output_text ??
-      payload.output
+      result.output_text ??
+      result.output
         ?.flatMap((item) => item.content ?? [])
         .find((item) => item.text)?.text;
-    if (!raw) throw new Error('OpenAI no devolvió una decisión estructurada');
-    return this.normalizeDecision(JSON.parse(raw) as AiDecision, context);
+    if (!raw)
+      throw new AiBudgetBlockedError(
+        'OpenAI no devolvió una decisión estructurada; consumo registrado.',
+      );
+    try {
+      return this.normalizeDecision(JSON.parse(raw) as AiDecision, context);
+    } catch {
+      throw new AiBudgetBlockedError(
+        'Respuesta de IA inválida; consumo registrado y atención humana requerida.',
+      );
+    }
   }
 
   private normalizeDecision(

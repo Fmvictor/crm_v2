@@ -1,3 +1,4 @@
+import { AiBudgetBlockedError } from './ai-usage.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { OpenAiService } from './openai.service';
 import { WebKnowledgeService } from './web-knowledge.service';
@@ -467,5 +468,51 @@ describe('AiConversationProcessor', () => {
       '⚠️ Un lead requiere atención humana.\nLead: Lead respaldo (…0005)\nMotivo: Solicita una persona\nAbre el Pipeline de WhatsApp en el CRM.',
       'system',
     );
+  });
+});
+
+describe('Derivación por control de consumo', () => {
+  it('deja atención persistente sin repetir la llamada ni enviar WhatsApp', async () => {
+    const conversations = {
+      findOne: jest.fn().mockResolvedValue({
+        aiMode: 'auto',
+        status: 'open',
+        pipelineStage: 'new',
+        externalContactKey: 'synthetic',
+      }),
+      getRecentMessages: jest
+        .fn()
+        .mockResolvedValue([
+          { id: 'inbound', direction: 'inbound', body: 'Hola' },
+        ]),
+      canAiReply: jest.fn().mockResolvedValue(true),
+      setMode: jest.fn(),
+    };
+    const model = {
+      decide: jest
+        .fn()
+        .mockRejectedValue(new AiBudgetBlockedError('Límite alcanzado')),
+    };
+    const whatsapp = { sendText: jest.fn(), sendTemplate: jest.fn() };
+    await createProcessor(
+      conversations,
+      model,
+      { getContext: jest.fn() },
+      {
+        isPaused: jest.fn().mockResolvedValue(false),
+        getLatestInstruction: jest.fn(),
+        getApprovedExamples: jest.fn(),
+      },
+      whatsapp,
+    ).process('conversation', 'inbound');
+    expect(model.decide).toHaveBeenCalledTimes(1);
+    expect(conversations.setMode).toHaveBeenCalledWith(
+      'conversation',
+      'human',
+      'Límite alcanzado',
+      'budget:inbound',
+    );
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(whatsapp.sendTemplate).not.toHaveBeenCalled();
   });
 });

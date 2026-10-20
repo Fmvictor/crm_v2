@@ -1,7 +1,7 @@
 services:
   backend:
     init: true
-    image: emeb-crm-backend:attention-20261020-r1
+    image: emeb-crm-backend:usage-20261020-r1
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
@@ -21,7 +21,7 @@ services:
 
   frontend:
     init: true
-    image: emeb-crm-frontend:attention-20261020-r1
+    image: emeb-crm-frontend:usage-20261020-r1
     build:
       context: ./apps/frontend
       dockerfile: Dockerfile
