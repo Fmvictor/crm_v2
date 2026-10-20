@@ -41,6 +41,105 @@ describe('AiConversationProcessor', () => {
     delete process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE;
   });
 
+  it.each([
+    ['I want to speak to a human, please.', "I'll connect"],
+    ['Je souhaite parler à un conseiller de votre équipe.', 'Je vous mets'],
+  ])(
+    'deriva en el idioma de la petición sin depender del modelo',
+    async (body, notice) => {
+      const conversation = {
+        aiMode: 'auto',
+        status: 'open',
+        pipelineStage: 'new',
+        externalContactKey: 'synthetic',
+        language: 'es',
+      };
+      const conversations = {
+        findOne: jest.fn().mockResolvedValue(conversation),
+        getRecentMessages: jest
+          .fn()
+          .mockResolvedValue([{ id: 'inbound', direction: 'inbound', body }]),
+        canAiReply: jest.fn().mockResolvedValue(true),
+        setMode: jest.fn(),
+      };
+      const model = { decide: jest.fn() };
+      const whatsapp = { sendText: jest.fn() };
+      await createProcessor(
+        conversations,
+        model,
+        {},
+        { isPaused: jest.fn().mockResolvedValue(false) },
+        whatsapp,
+      ).process('conversation', 'inbound');
+      expect(model.decide).not.toHaveBeenCalled();
+      expect(whatsapp.sendText).toHaveBeenNthCalledWith(
+        1,
+        'synthetic',
+        expect.stringContaining(notice),
+        'ai',
+        undefined,
+        expect.objectContaining({ policy: 'handoff' }),
+      );
+      expect(conversations.setMode.mock.invocationCallOrder[0]).toBeLessThan(
+        whatsapp.sendText.mock.invocationCallOrder[0],
+      );
+    },
+  );
+
+  it('pasa el curso guardado y los mensajes anteriores al recuperador', async () => {
+    const conversation = {
+      aiMode: 'auto',
+      status: 'open',
+      pipelineStage: 'contacted',
+      externalContactKey: 'synthetic',
+      contact: { courseInterest: 'CMB1' },
+    };
+    const previous = [
+      { id: 'first', direction: 'inbound', body: 'Me interesa CMB1' },
+      { id: 'reply', direction: 'outbound', body: 'Tiene modalidad híbrida' },
+    ];
+    const conversations = {
+      findOne: jest.fn().mockResolvedValue(conversation),
+      getRecentMessages: jest
+        .fn()
+        .mockResolvedValue([
+          ...previous,
+          { id: 'last', direction: 'inbound', body: '¿Y cuánto cuesta?' },
+        ]),
+      canAiReply: jest.fn().mockResolvedValue(true),
+      updateLead: jest.fn(),
+    };
+    const knowledge = {
+      getContext: jest.fn().mockResolvedValue('Precio oficial'),
+    };
+    const model = {
+      decide: jest.fn().mockResolvedValue({
+        reply: 'Precio publicado',
+        informationVerified: true,
+        optIn: false,
+        handoff: false,
+      }),
+    };
+    await createProcessor(
+      conversations,
+      model,
+      knowledge,
+      {
+        isPaused: jest.fn().mockResolvedValue(false),
+        getLatestInstruction: jest.fn(),
+        getApprovedExamples: jest.fn(),
+      },
+      { sendText: jest.fn() },
+    ).process('conversation', 'last');
+    expect(knowledge.getContext).toHaveBeenCalledWith('¿Y cuánto cuesta?', {
+      previousMessages: previous.map(({ direction, body }) => ({
+        direction,
+        body,
+      })),
+      courseInterest: 'CMB1',
+    });
+  });
+
   afterAll(() => {
     if (previousHumanAttentionPhone === undefined)
       delete process.env.HUMAN_ATTENTION_WHATSAPP_PHONE;

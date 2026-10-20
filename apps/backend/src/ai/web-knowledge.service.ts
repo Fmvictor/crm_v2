@@ -17,6 +17,11 @@ interface PageDefinition {
   refreshMs: number;
 }
 
+export interface KnowledgeConversationContext {
+  previousMessages?: { direction: string; body: string }[];
+  courseInterest?: string | null;
+}
+
 @Injectable()
 export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WebKnowledgeService.name);
@@ -81,8 +86,11 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
     if (this.scheduler) clearInterval(this.scheduler);
   }
 
-  async getContext(query: string): Promise<string> {
-    const paths = this.selectPaths(query);
+  async getContext(
+    query: string,
+    conversation?: KnowledgeConversationContext,
+  ): Promise<string> {
+    const paths = this.selectPaths(query, conversation);
     // Cada respuesta consulta las páginas relevantes de emeb.es. La copia local
     // solo permite derivar con seguridad si la web no está disponible.
     const fetchedDocuments = await Promise.all(
@@ -111,48 +119,71 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
         `SISTEMA: No se ha podido verificar ahora mismo ${unavailablePaths.join(', ')} en emeb.es. No confirmes fechas, precios ni plazas; deriva a una persona.`,
       );
     }
-    return `${context}${warnings.length ? `\n\n${warnings.join('\n')}` : ''}`.slice(
+    // La advertencia debe sobrevivir incluso si se recorta un contexto largo.
+    return `${warnings.length ? `${warnings.join('\n')}\n\n` : ''}${context}`.slice(
       0,
       26_000,
     );
   }
 
-  private selectPaths(query: string): string[] {
-    const normalized = query
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
+  private selectPaths(
+    query: string,
+    conversation?: KnowledgeConversationContext,
+  ): string[] {
+    const normalized = this.normalize(query);
     const paths = new Set<string>();
     const asksAboutDatesOrPrice =
-      /fecha|plaza|inicio|cuando|precio|coste|cuanto|tarifa|importe|curso/.test(
+      /fecha|plaza|inicio|cuando|precio|coste|cuanto|tarifa|importe|\b(?:date|dates|price|prices|cost|fees|start|when|how much|prix|tarif|combien|debut|quand)\b/.test(
         normalized,
       );
-    const asksAboutLodging = /aloj|hotel|dormir|estancia/.test(normalized);
-    const asksAboutMethod = /metod|practica|certific|contenido|temario/.test(
-      normalized,
-    );
-    const asksForContact = /persona|humano|llamad|contact|telefono|hablar/.test(
-      normalized,
-    );
-    const coursePath = this.selectCoursePath(normalized);
+    const asksAboutLodging =
+      /aloj|hotel|dormir|estancia|accommodat|lodging|stay|heberg|logement/.test(
+        normalized,
+      );
+    const asksAboutMethod =
+      /metod|practica|certific|contenido|temario|method|practic|curriculum|syllabus|duration|duree|contenu/.test(
+        normalized,
+      );
+    const asksForContact =
+      /persona|humano|llamad|contact|telefono|hablar|phone|conseiller/.test(
+        normalized,
+      );
+    // El curso explícito más reciente del cliente prevalece sobre la ficha y
+    // sobre mensajes anteriores. No se deduce a partir de respuestas del bot.
+    const previousCourse = [...(conversation?.previousMessages ?? [])]
+      .reverse()
+      .filter((message) => message.direction === 'inbound')
+      .map((message) => this.selectCoursePath(this.normalize(message.body)))
+      .find((course) => course !== null);
+    const coursePath =
+      this.selectCoursePath(normalized) ??
+      previousCourse ??
+      this.selectCoursePath(this.normalize(conversation?.courseInterest ?? ''));
 
     if (coursePath) paths.add(coursePath);
 
-    if (asksAboutDatesOrPrice) {
-      if (!coursePath) paths.add('/cursos-profesionales');
-      paths.add('/fechas');
-    } else if (asksAboutLodging) {
-      if (!coursePath) paths.add('/cursos-profesionales');
-      paths.add('/alojamientos');
-    } else if (asksAboutMethod) {
-      if (!coursePath) paths.add('/cursos-profesionales');
+    if (!coursePath) paths.add('/cursos-profesionales');
+    // Las intenciones se combinan: preguntar por un curso no excluye método
+    // o alojamiento. Una consulta genérica no implica consultar fechas.
+    if (asksAboutDatesOrPrice) paths.add('/fechas');
+    if (asksAboutLodging) paths.add('/alojamientos');
+    if (asksAboutMethod) paths.add('/metodo');
+    if (
+      !coursePath &&
+      !asksAboutDatesOrPrice &&
+      !asksAboutLodging &&
+      !asksAboutMethod
+    )
       paths.add('/metodo');
-    } else if (!coursePath) {
-      paths.add('/cursos-profesionales');
-      paths.add('/metodo');
-    }
     if (asksForContact) paths.add('/contacto');
     return [...paths];
+  }
+
+  private normalize(text: string): string {
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
   }
 
   private selectCoursePath(normalizedQuery: string): string | null {

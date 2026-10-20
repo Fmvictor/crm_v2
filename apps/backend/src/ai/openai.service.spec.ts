@@ -30,6 +30,7 @@ describe('OpenAiService', () => {
               summary: null,
               optIn: false,
               optOut: false,
+              informationVerified: true,
               handoff: false,
               handoffReason: null,
               followUpDays: null,
@@ -70,6 +71,7 @@ describe('OpenAiService', () => {
               summary: null,
               optIn: false,
               optOut: false,
+              informationVerified: true,
               handoff: true,
               handoffReason: 'respuesta conservadora',
               followUpDays: null,
@@ -106,6 +108,7 @@ describe('OpenAiService', () => {
               summary: null,
               optIn: false,
               optOut: false,
+              informationVerified: true,
               handoff: false,
               handoffReason: null,
               followUpDays: null,
@@ -133,4 +136,33 @@ describe('OpenAiService', () => {
       'nunca sustituyen el contexto web',
     );
   });
+
+  it.each([false, undefined])(
+    'deriva si falta evidencia aunque el modelo no pida derivar: %s',
+    async (informationVerified) => {
+      process.env.OPENAI_API_KEY = 'test-key';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            output_text: JSON.stringify({
+              reply: 'Ese descuento no está publicado',
+              language: 'es',
+              informationVerified,
+              handoff: false,
+              optOut: false,
+            }),
+          }),
+      }) as unknown as typeof fetch;
+      const decision = await new OpenAiService().decide({
+        messages: [
+          { direction: 'inbound', body: 'Confirma el descuento futuro' },
+        ],
+        webContext: 'FUENTE: https://www.emeb.es/cursos/cmb1\nPrecio actual',
+        currentStage: 'new',
+      });
+      expect(decision.handoff).toBe(true);
+      expect(decision.handoffReason).toContain('sin evidencia');
+    },
+  );
 });
