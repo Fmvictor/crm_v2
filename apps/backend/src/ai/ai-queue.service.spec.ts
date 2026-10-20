@@ -116,6 +116,7 @@ describe('Persistent AI queue', () => {
       'conversation',
       'human',
       expect.any(String),
+      'job:job',
     );
     expect(jobs.fail).toHaveBeenCalledWith(
       expect.objectContaining({ attempts: 3 }),
@@ -130,6 +131,7 @@ describe('Persistent AI queue', () => {
       'conversation',
       'human',
       expect.stringContaining('incierto'),
+      'job:job',
     );
   });
   it('detects a send left by a crashed worker before invoking the model again', async () => {
@@ -160,6 +162,7 @@ describe('Persistent AI queue', () => {
       'due',
       'human',
       expect.stringContaining('plantilla'),
+      expect.stringContaining('followup:due:'),
     );
     expect(conversations.markFollowUpSent).not.toHaveBeenCalled();
   });

@@ -33,6 +33,7 @@ import {
 } from '../conversations/entities/conversation-message.entity';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AiGuidanceService } from '../ai/ai-guidance.service';
+import { WhatsAppStatusService } from './whatsapp-status.service';
 
 export interface AutomaticDelivery {
   key: string;
@@ -67,6 +68,7 @@ export class WhatsAppService {
     @Inject(forwardRef(() => AiGuidanceService))
     private readonly guidanceService: AiGuidanceService,
     private readonly dispatches: WhatsAppDispatchService,
+    private readonly statuses: WhatsAppStatusService,
   ) {}
 
   async sendTemplate(
@@ -426,6 +428,17 @@ export class WhatsAppService {
 
         const messages = value.messages || [];
         const metadata = value.metadata;
+
+        if (value.statuses?.length) {
+          try {
+            await this.statuses.record(value.statuses);
+          } catch {
+            processingFailed = true;
+            this.logger.error(
+              'No se pudieron guardar confirmaciones de WhatsApp; se requiere reintento.',
+            );
+          }
+        }
 
         if (messages.length === 0) {
           this.logger.debug(

@@ -6,6 +6,7 @@ import { ContactsModule } from '../contacts/contacts.module';
 import { InteractionsModule } from '../interactions/interactions.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { AiModule } from '../ai/ai.module';
+import { WhatsAppStatusService } from './whatsapp-status.service';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { AiModule } from '../ai/ai.module';
     forwardRef(() => AiModule),
   ],
   controllers: [WhatsAppController],
-  providers: [WhatsAppService, WhatsAppDispatchService],
+  providers: [WhatsAppService, WhatsAppDispatchService, WhatsAppStatusService],
   exports: [WhatsAppService],
 })
 export class WhatsAppModule {}

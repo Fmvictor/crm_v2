@@ -222,6 +222,7 @@ describe('AiConversationProcessor', () => {
       'conversation-id',
       ConversationAiMode.HUMAN,
       'Solicita una persona',
+      'handoff:inbound-id',
     );
     expect(whatsAppService.sendText).toHaveBeenNthCalledWith(
       2,
@@ -359,6 +360,7 @@ describe('AiConversationProcessor', () => {
       'conversation-id',
       ConversationAiMode.HUMAN,
       'Solicita una persona',
+      'handoff:inbound-id',
     );
   });
 
@@ -401,6 +403,7 @@ describe('AiConversationProcessor', () => {
       'conversation',
       'human',
       'Solicita una persona',
+      'handoff:inbound',
     );
     expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
   });

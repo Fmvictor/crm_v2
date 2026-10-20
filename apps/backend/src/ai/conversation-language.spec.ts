@@ -5,6 +5,28 @@ import {
 } from './conversation-language';
 
 describe('Idioma de la derivación', () => {
+  it('comunica el horario configurado en el idioma del cliente sin prometer un plazo', () => {
+    const previous = { ...process.env };
+    try {
+      Object.assign(process.env, {
+        HUMAN_ATTENTION_AGENT_NAME: 'Víctor',
+        HUMAN_ATTENTION_START: '08:00',
+        HUMAN_ATTENTION_END: '20:00',
+        HUMAN_ATTENTION_DAYS: '1,2,3,4,5',
+        HUMAN_ATTENTION_TIMEZONE: 'Europe/Madrid',
+      });
+      expect(handoffNotice('es')).toContain(
+        'Víctor atiende de lunes a viernes, de 08:00 a 20:00, hora de Madrid.',
+      );
+      expect(handoffNotice('en')).toContain(
+        'Monday to Friday, 08:00–20:00, Madrid time',
+      );
+      process.env.HUMAN_ATTENTION_START = '25:00';
+      expect(handoffNotice('es')).not.toContain('25:00');
+    } finally {
+      process.env = previous;
+    }
+  });
   it.each([
     ['I want to speak to a human, please.', 'es', 'en', 'connect'],
     [

@@ -13,7 +13,12 @@ async function check() {
     const { rows } = await client.query(`SELECT
       EXISTS (SELECT 1 FROM migrations WHERE name = 'ReliableBotDelivery1760000002000')
       AND to_regclass('public.ai_reply_jobs') IS NOT NULL
-      AND to_regclass('public.whatsapp_dispatches') IS NOT NULL AS ready`);
+      AND to_regclass('public.whatsapp_dispatches') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM migrations WHERE name = 'DeliveryAttention1760000003000')
+      AND to_regclass('public.whatsapp_status_events') IS NOT NULL
+      AND to_regclass('public.conversation_attention_events') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='conversations' AND column_name='attentionVersion')
+      AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='conversation_messages' AND column_name='deliveryStatus') AS ready`);
     if (rows[0]?.ready !== true) throw new Error('Schema pending');
     console.log('Migración de entrega persistente verificada.');
   } finally {

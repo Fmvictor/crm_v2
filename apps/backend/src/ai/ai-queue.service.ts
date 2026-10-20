@@ -112,6 +112,7 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
             error instanceof DeliveryUncertainError
               ? 'Envío incierto: revisar antes de reenviar.'
               : 'Fallo de atención automática: requiere revisión.',
+            `job:${job.id}`,
           );
         }
         await this.jobs.fail(job, terminal);
@@ -161,6 +162,7 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
             error instanceof DeliveryUncertainError
               ? 'Seguimiento con envío incierto: revisar sin reenviar.'
               : 'Seguimiento fallido: revisar plantilla y configuración.',
+            `followup:${conversation.id}:${conversation.followUpStep}:${conversation.nextFollowUpAt?.toISOString()}`,
           );
           this.logger.error(
             'Seguimiento detenido y derivado a revisión humana.',

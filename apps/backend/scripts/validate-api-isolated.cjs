@@ -38,7 +38,9 @@ async function main() {
   assert.equal((await request('')).status, 200);
   assert.equal((await request('/conversations')).status, 401);
   await db.initialize();
-  await db.query('TRUNCATE contacts, whatsapp_dispatches CASCADE');
+  await db.query(
+    'TRUNCATE contacts, whatsapp_dispatches, whatsapp_status_events CASCADE',
+  );
   const password = randomBytes(24).toString('hex');
   const hash = await bcrypt.hash(password, 4);
   const userId = randomUUID();
@@ -197,12 +199,109 @@ async function main() {
     403,
   );
   assert.equal(transportCalls, 1);
+  const outbound = (
+    await db.query(
+      `SELECT "externalMessageId" FROM conversation_messages WHERE "conversationId"=$1 AND direction='outbound'`,
+      [conversationId],
+    )
+  )[0];
+  const receipt = JSON.stringify({
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        changes: [
+          {
+            value: {
+              metadata: { phone_number_id: 'validation-phone' },
+              statuses: [
+                {
+                  id: outbound.externalMessageId,
+                  recipient_id: '000000001',
+                  status: 'failed',
+                  timestamp: String(Math.floor(Date.now() / 1000)),
+                  errors: [{ code: 131026 }],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(
+    (await postWebhook(receipt, `sha256=${'0'.repeat(64)}`)).status,
+    401,
+  );
+  assert.equal((await postWebhook(receipt, sign(receipt))).status, 200);
+  assert.equal((await postWebhook(receipt, sign(receipt))).status, 200);
+  let attention;
+  for (let attempt = 0; attempt < 25; attempt++) {
+    attention = await (
+      await request(`/conversations/${conversationId}`, { headers: auth })
+    ).json();
+    if (attention.attentionPending) break;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  assert.equal(attention.aiMode, 'human');
+  assert.equal(attention.attentionPending, true);
+  assert.equal(attention.nextFollowUpAt, null);
+  assert.equal(
+    attention.messages.find((message) => message.actor === 'agent')
+      .deliveryStatus,
+    'failed',
+  );
+  const endpoint = `/conversations/${conversationId}/attention/acknowledge`;
+  assert.equal(
+    (
+      await request(endpoint, {
+        method: 'POST',
+        headers: { ...auth, Authorization: `Bearer ${viewerToken}` },
+        body: JSON.stringify({ version: attention.attentionVersion }),
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(endpoint, {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ version: attention.attentionVersion - 1 }),
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(`/conversations/${conversationId}/mode`, {
+        method: 'PATCH',
+        headers: auth,
+        body: JSON.stringify({ aiMode: 'auto' }),
+      })
+    ).status,
+    409,
+  );
+  const acknowledged = await request(endpoint, {
+    method: 'POST',
+    headers: auth,
+    body: JSON.stringify({ version: attention.attentionVersion }),
+  });
+  assert.equal(acknowledged.status, 201);
+  const ack = await acknowledged.json();
+  assert.equal(ack.aiMode, 'human');
+  assert.equal(ack.attentionPending, false);
+  assert.equal(transportCalls, 1);
   await db.destroy();
   await new Promise((resolve) => server.close(resolve));
   console.log(
     JSON.stringify(
       {
         api: true,
+        signedStatusCallbacks: true,
+        deliveryFailurePersistent: true,
+        staleAcknowledgementRejected: true,
+        viewerAcknowledgementRejected: true,
+        acknowledgementKeepsHumanMode: true,
         authentication: true,
         refresh: true,
         anonymousRejected: true,

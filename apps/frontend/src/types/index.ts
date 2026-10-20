@@ -37,6 +37,9 @@ export interface ConversationMessage {
   body: string;
   messageType: string;
   createdAt: string;
+  deliveryStatus?: 'sent' | 'delivered' | 'read' | 'failed' | null;
+  deliveryUpdatedAt?: string | null;
+  deliveryErrorCode?: number | null;
 }
 
 export interface PipelineEvent {
@@ -58,6 +61,11 @@ export interface Conversation {
   optOutAt: string | null;
   nextFollowUpAt: string | null;
   handoffReason: string | null;
+  attentionPending: boolean;
+  attentionVersion: number;
+  attentionReason: string | null;
+  attentionRequestedAt: string | null;
+  attentionAcknowledgedAt: string | null;
   aiSummary: string | null;
   contact: Contact;
   messages?: ConversationMessage[];
