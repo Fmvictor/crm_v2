@@ -147,6 +147,52 @@ describe('WhatsApp delivery controls', () => {
     ).rejects.toBeInstanceOf(DeliveryHistoryError);
     expect(dispatches.recorded).not.toHaveBeenCalled();
   });
+  it('uses the language actually approved by Meta for a configured follow-up', async () => {
+    process.env.WHATSAPP_FOLLOWUP_TEMPLATE_D1 = 'synthetic_followup';
+    jest
+      .spyOn(service, 'getTemplates')
+      .mockResolvedValue([
+        { name: 'synthetic_followup', status: 'APPROVED', language: 'en' },
+      ]);
+    const send = jest
+      .spyOn(service, 'sendTemplate')
+      .mockResolvedValue(undefined);
+    await service.sendConfiguredFollowUp({
+      id: 'conversation',
+      followUpStep: 0,
+      nextFollowUpAt: new Date(),
+      language: 'es',
+      contact: { phone: '000000001', name: 'Synthetic' },
+    } as never);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateName: 'synthetic_followup',
+        languageCode: 'en',
+      }),
+      ConversationMessageActor.SYSTEM,
+      undefined,
+      expect.objectContaining({ policy: 'followup' }),
+    );
+  });
+  it('does not choose another template or guess among multiple languages', async () => {
+    process.env.WHATSAPP_FOLLOWUP_TEMPLATE_D1 = 'synthetic_followup';
+    jest.spyOn(service, 'getTemplates').mockResolvedValue([
+      { name: 'synthetic_followup', status: 'APPROVED', language: 'en' },
+      { name: 'synthetic_followup', status: 'APPROVED', language: 'fr' },
+    ]);
+    const send = jest
+      .spyOn(service, 'sendTemplate')
+      .mockResolvedValue(undefined);
+    await expect(
+      service.sendConfiguredFollowUp({
+        id: 'conversation',
+        followUpStep: 0,
+        language: 'es',
+        contact: { phone: '000000001', name: 'Synthetic' },
+      } as never),
+    ).rejects.toThrow('Meta rechazó');
+    expect(send).not.toHaveBeenCalled();
+  });
   it('does not claim success when credentials are absent', async () => {
     delete process.env.WHATSAPP_API_TOKEN;
     await expect(

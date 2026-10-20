@@ -33,6 +33,7 @@ export class AiJobStore {
         `UPDATE ai_reply_jobs SET status = 'pending', "leaseToken" = NULL,
          "lockedUntil" = NULL WHERE status = 'running' AND "lockedUntil" < now()`,
       );
+      // The final SELECT avoids the PostgreSQL driver UPDATE result tuple [rows, count].
       const rows: AiJob[] = await manager.query(
         `WITH candidate AS (
            SELECT j.id FROM ai_reply_jobs j
@@ -42,10 +43,11 @@ export class AiJobStore {
              WHERE busy."conversationId" = j."conversationId" AND busy.status = 'running')
            ORDER BY j."availableAt", j.id
            FOR UPDATE OF j, c SKIP LOCKED LIMIT 1
-         )
+         ), claimed AS (
          UPDATE ai_reply_jobs j SET status = 'running', attempts = attempts + 1,
            "leaseToken" = $1, "lockedUntil" = now() + interval '2 minutes'
-         FROM candidate WHERE j.id = candidate.id RETURNING j.*`,
+         FROM candidate WHERE j.id = candidate.id RETURNING j.*
+         ) SELECT * FROM claimed`,
         [randomUUID()],
       );
       return rows[0];

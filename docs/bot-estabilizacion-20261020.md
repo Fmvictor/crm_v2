@@ -1,6 +1,6 @@
 # Estabilización del bot de WhatsApp
 
-Fecha: 20 de octubre de 2026. Base: `5741b975b944491ae78e3269b9fe9674cb792578`. Estado: candidato de desarrollo; no desplegado. Alcance autorizado: preparar y validar la estabilización para revisión. La activación, migración de producción y ampliación del piloto quedan pendientes de un encargo de puesta en servicio.
+Fecha: 20 de octubre de 2026. Base: `5741b975b944491ae78e3269b9fe9674cb792578`. Documento técnico del cambio. El usuario autorizó continuar la validación y puesta en servicio mediante «hazlo» y eligió el número interno de avisos como destinatario controlado. La ejecución y el estado efectivo se registran en Coordinación y VPS ESC; ampliar la audiencia queda fuera del piloto inicial.
 
 ## Punto de partida verificado
 
@@ -72,11 +72,11 @@ Las pruebas utilizan contactos, identificadores y mensajes sintéticos. Las llam
 
 También se comprueban la pausa antes de enviar, el aviso fallido después de derivar, la petición humana sin proveedor IA, la preservación de la derivación del modelo, los errores al guardar historial, la audiencia explícita y los cuerpos inválidos del webhook. `npm test -- --runInBand` y `npm run build` son los comandos del candidato. El runner de pruebas habilita módulos VM para PGlite; no cambia el proceso de producción.
 
-Antes del piloto quedan pruebas con PostgreSQL 16 real y conexiones simultáneas, Docker ARM64, el proxy real y números controlados. PostgreSQL embebido no acredita concurrencia entre procesos, TLS ni comportamiento de Meta. Las comprobaciones del candidato y sus resultados se registran en la entrega; no equivalen a una validación de producción.
+PostgreSQL embebido no acredita concurrencia entre procesos, TLS ni comportamiento de Meta. La validación posterior con PostgreSQL 16.15 en ARM64, una base sintética y una red Docker sin salida a Internet superó ocho escenarios: duplicados concurrentes, transacción de entrada, dos procesos independientes, recuperación tras matar un consumidor, concurrencia de envíos, incertidumbre, historial incompleto y toma humana mientras el modelo espera. El script `apps/backend/scripts/validate-postgres16.cjs` exige el host y la base de pruebas antes de modificar datos; puede ejecutarse con `npm run test:postgres16` en ese entorno.
 
 Resultados locales del 20 de octubre: 11 suites y 59 pruebas correctas; compilación y comprobación TypeScript completa, incluidas las pruebas, correctas. ESLint de los TypeScript afectados: cero errores y cero avisos. YAML de Compose y Actions, sintaxis shell y posición del preflight comprobados. Auditoría de dependencias de producción: cero avisos. Las herramientas de desarrollo conservan los mismos 21 avisos que el archivo de bloqueo de la base (20 moderados y uno alto); PGlite no añade avisos en el informe consultado. No se ejecutaron builds Docker ni migraciones en VPS ESC.
 
-## Puesta en servicio propuesta, todavía pendiente
+## Procedimiento de puesta en servicio
 
 1. Confirmar VPS ESC, commit e imágenes activos, recursos y copias. Revisar el 87 % de ocupación observado antes de construir imágenes; conservar las imágenes de recuperación. Acordar audiencia, atención humana, proveedor, datos autorizados y presupuesto.
 2. Validar el candidato con PostgreSQL 16 y dos consumidores en un entorno aislado. Comprobar también pérdida de conexión después de enviar, reinicio antes de guardar historial y toma humana mientras el modelo trabaja.
@@ -114,4 +114,12 @@ Las tablas nuevas deben conservarse al volver al código anterior. La migración
 - Confirmaciones de entrega de Meta, notificaciones humanas persistentes y deduplicación de peticiones manuales independientes.
 - Reconstrucción del orden del proveedor ante lotes que llegan tarde; la selección de entrada vigente conserva el orden de registro del historial y debe validarse con estos casos antes de ampliar el piloto.
 - Referencias de fuentes por respuesta, comprobación comercial de los documentos y límites de gasto del proyecto proveedor.
-- Prueba de concurrencia real, validación del piloto y autorización de despliegue.
+- Validación funcional del piloto con recepción real desde Meta y aceptación para ampliar la audiencia.
+
+## Correcciones verificadas en la validación real
+
+El driver PostgreSQL de TypeORM devuelve una pareja `[filas, número afectado]` para un `UPDATE ... RETURNING`. Las pruebas embebidas devolvían directamente las filas y no detectaban esa diferencia. La reserva ahora termina con `SELECT * FROM claimed`, conserva los bloqueos y devuelve una fila de trabajo real también en PostgreSQL 16. Dos procesos independientes completaron 24 trabajos sin duplicar reservas; veinte copias concurrentes de un webhook crearon un mensaje y un trabajo.
+
+La lectura de Meta respondió HTTP 200, informó versión efectiva `v25.0` y una aplicación suscrita. La plantilla interna de avisos está aprobada en `es`; las cuatro plantillas de seguimiento configuradas están aprobadas con código `en`. El envío de seguimiento selecciona la variante aprobada del mismo nombre, con preferencia por el idioma del lead y sin adivinar si hay varias alternativas. Se conserva el contenido aprobado. La ruta Graph se fija en `v25.0`, la misma que informó el proveedor al consultar la configuración anterior.
+
+Tras estas correcciones, las 11 suites y 61 pruebas locales, la compilación, TypeScript completo y el lint de los archivos afectados pasaron. El destino del piloto se toma de la configuración privada; su valor no se incorpora al repositorio ni a la documentación.

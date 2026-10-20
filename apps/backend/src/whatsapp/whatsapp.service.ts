@@ -101,7 +101,7 @@ export class WhatsAppService {
     const { to, templateName, languageCode = 'es', params = [] } = options;
 
     const apiUrl =
-      process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
+      process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v25.0';
     const token = process.env.WHATSAPP_API_TOKEN ?? '';
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
 
@@ -216,7 +216,7 @@ export class WhatsAppService {
     dispatchKey: string,
   ): Promise<void> {
     const apiUrl =
-      process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
+      process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v25.0';
     const token = process.env.WHATSAPP_API_TOKEN ?? '';
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
 
@@ -363,7 +363,7 @@ export class WhatsAppService {
     { name: string; status: string; language: string }[]
   > {
     const apiUrl =
-      process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
+      process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v25.0';
     const token = process.env.WHATSAPP_API_TOKEN ?? '';
     const businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ?? '';
 
@@ -543,11 +543,20 @@ export class WhatsAppService {
     const templateName =
       process.env[`WHATSAPP_FOLLOWUP_TEMPLATE_D${[1, 3, 7, 14][step - 1]}`];
     if (!templateName || !conversation.contact?.phone) return false;
+    const approved = (await this.getTemplates()).filter(
+      (template) =>
+        template.name === templateName && template.status === 'APPROVED',
+    );
+    const selected =
+      approved.find(
+        (template) => template.language === (conversation.language || 'es'),
+      ) ?? (approved.length === 1 ? approved[0] : undefined);
+    if (!selected) throw new DeliveryRejectedError(0);
     await this.sendTemplate(
       {
         to: conversation.contact.phone,
         templateName,
-        languageCode: conversation.language || 'es',
+        languageCode: selected.language,
         params: [conversation.contact.name],
       },
       ConversationMessageActor.SYSTEM,
