@@ -1,7 +1,7 @@
 services:
   backend:
     init: true
-    image: emeb-crm-backend:security-20261018
+    image: emeb-crm-backend:delivery-20261020
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
