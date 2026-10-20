@@ -85,7 +85,7 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
         const current = await this.conversationsService.findOne(
           job.conversationId,
         );
-        if (!this.acceptsPhone(current.contact.phone)) {
+        if (!this.acceptsPhone(current.externalContactKey)) {
           await this.jobs.finish(job);
           return;
         }
@@ -141,7 +141,7 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
           conversation.optOutAt
         )
           continue;
-        if (!this.acceptsPhone(conversation.contact.phone)) continue;
+        if (!this.acceptsPhone(conversation.externalContactKey)) continue;
         if (await this.guidance.isPaused()) break;
         try {
           const sent =

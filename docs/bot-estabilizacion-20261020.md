@@ -123,3 +123,7 @@ El driver PostgreSQL de TypeORM devuelve una pareja `[filas, número afectado]` 
 La lectura de Meta respondió HTTP 200, informó versión efectiva `v25.0` y una aplicación suscrita. La plantilla interna de avisos está aprobada en `es`; las cuatro plantillas de seguimiento configuradas están aprobadas con código `en`. El envío de seguimiento selecciona la variante aprobada del mismo nombre, con preferencia por el idioma del lead y sin adivinar si hay varias alternativas. Se conserva el contenido aprobado. La ruta Graph se fija en `v25.0`, la misma que informó el proveedor al consultar la configuración anterior.
 
 Tras estas correcciones, las 11 suites y 61 pruebas locales, la compilación, TypeScript completo y el lint de los archivos afectados pasaron. El destino del piloto se toma de la configuración privada; su valor no se incorpora al repositorio ni a la documentación.
+
+## Destinatario del canal
+
+El piloto mostró que una ficha auxiliar podía tener un teléfono distinto del identificador de WhatsApp de su conversación. La admisión y el consumidor utilizan ahora `externalContactKey`, la identidad del canal, y los seguimientos se dirigen a ese mismo valor. No se modifica la ficha ni se normalizan datos históricos de forma automática. La regresión incluye tanto la admisión de la conversación correcta como el rechazo de otra conversación cuyo contacto contenga un número permitido. La validación local completa de esta corrección superó 63 pruebas.

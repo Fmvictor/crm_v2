@@ -45,6 +45,7 @@ describe('WhatsApp delivery controls', () => {
     conversations.findOrCreate.mockResolvedValue({ id: 'conversation' });
     conversations.findOne.mockResolvedValue({
       id: 'conversation',
+      externalContactKey: '000000001',
       status: 'open',
       aiMode: 'auto',
     });
@@ -159,14 +160,16 @@ describe('WhatsApp delivery controls', () => {
       .mockResolvedValue(undefined);
     await service.sendConfiguredFollowUp({
       id: 'conversation',
+      externalContactKey: '000000001',
       followUpStep: 0,
       nextFollowUpAt: new Date(),
       language: 'es',
-      contact: { phone: '000000001', name: 'Synthetic' },
+      contact: { phone: 'different-contact-phone', name: 'Synthetic' },
     } as never);
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         templateName: 'synthetic_followup',
+        to: '000000001',
         languageCode: 'en',
       }),
       ConversationMessageActor.SYSTEM,
@@ -186,9 +189,10 @@ describe('WhatsApp delivery controls', () => {
     await expect(
       service.sendConfiguredFollowUp({
         id: 'conversation',
+        externalContactKey: '000000001',
         followUpStep: 0,
         language: 'es',
-        contact: { phone: '000000001', name: 'Synthetic' },
+        contact: { phone: 'different-contact-phone', name: 'Synthetic' },
       } as never),
     ).rejects.toThrow('Meta rechazó');
     expect(send).not.toHaveBeenCalled();

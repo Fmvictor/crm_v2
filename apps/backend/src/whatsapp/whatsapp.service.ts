@@ -542,7 +542,7 @@ export class WhatsAppService {
     const step = conversation.followUpStep + 1;
     const templateName =
       process.env[`WHATSAPP_FOLLOWUP_TEMPLATE_D${[1, 3, 7, 14][step - 1]}`];
-    if (!templateName || !conversation.contact?.phone) return false;
+    if (!templateName || !conversation.externalContactKey) return false;
     const approved = (await this.getTemplates()).filter(
       (template) =>
         template.name === templateName && template.status === 'APPROVED',
@@ -554,7 +554,7 @@ export class WhatsAppService {
     if (!selected) throw new DeliveryRejectedError(0);
     await this.sendTemplate(
       {
-        to: conversation.contact.phone,
+        to: conversation.externalContactKey,
         templateName,
         languageCode: selected.language,
         params: [conversation.contact.name],
