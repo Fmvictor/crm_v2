@@ -1,7 +1,33 @@
+import { ConversationsService } from '../conversations/conversations.service';
+import { OpenAiService } from './openai.service';
+import { WebKnowledgeService } from './web-knowledge.service';
+import { AiGuidanceService } from './ai-guidance.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { DeliveryRejectedError } from '../whatsapp/whatsapp-dispatch.service';
 import { AiConversationProcessor } from './ai-conversation.processor';
 import { ConversationAiMode } from '../conversations/entities/conversation.entity';
 import { ConversationMessageDirection } from '../conversations/entities/conversation-message.entity';
 import { PipelineStage } from '../pipeline/pipeline-stage.enum';
+
+function createProcessor(
+  conversations: unknown,
+  openai: unknown,
+  knowledge: unknown,
+  guidance: unknown,
+  whatsapp: unknown,
+) {
+  return new AiConversationProcessor(
+    conversations as ConversationsService,
+    openai as OpenAiService,
+    knowledge as WebKnowledgeService,
+    guidance as AiGuidanceService,
+    whatsapp as WhatsAppService,
+  );
+}
+const alertFor = (processor: AiConversationProcessor) =>
+  processor as unknown as {
+    notifyHumanAttention(conversation: unknown, reason: string): Promise<void>;
+  };
 
 describe('AiConversationProcessor', () => {
   const humanAttentionPhone = '+34600000000';
@@ -27,7 +53,7 @@ describe('AiConversationProcessor', () => {
         previousHumanAttentionTemplate;
   });
 
-  it('sends a handoff message before pausing the conversation for a person', async () => {
+  it('pauses before sending a handoff message, without depending on the AI provider', async () => {
     const conversation = {
       aiMode: ConversationAiMode.AUTO,
       status: 'open',
@@ -35,7 +61,7 @@ describe('AiConversationProcessor', () => {
       pipelineStage: PipelineStage.NEW,
       externalContactKey: '34600000000',
       contact: { name: 'Lead de prueba' },
-    } as any;
+    };
     const conversationsService = {
       findOne: jest.fn().mockResolvedValue(conversation),
       getRecentMessages: jest.fn().mockResolvedValue([
@@ -76,12 +102,12 @@ describe('AiConversationProcessor', () => {
     const whatsAppService = {
       sendText: jest.fn().mockResolvedValue(undefined),
     };
-    const processor = new AiConversationProcessor(
-      conversationsService as any,
-      openAiService as any,
-      webKnowledgeService as any,
-      guidanceService as any,
-      whatsAppService as any,
+    const processor = createProcessor(
+      conversationsService,
+      openAiService,
+      webKnowledgeService,
+      guidanceService,
+      whatsAppService,
     );
 
     await processor.process('conversation-id');
@@ -90,6 +116,8 @@ describe('AiConversationProcessor', () => {
       '34600000000',
       'Te paso con alguien del equipo para que te ayude lo antes posible.',
       'ai',
+      undefined,
+      expect.objectContaining({ key: 'handoff:inbound-id', policy: 'handoff' }),
     );
     expect(conversationsService.setMode).toHaveBeenCalledWith(
       'conversation-id',
@@ -102,9 +130,10 @@ describe('AiConversationProcessor', () => {
       '⚠️ Un lead requiere atención humana.\nLead: Lead de prueba (…0000)\nMotivo: Solicita una persona\nAbre el Pipeline de WhatsApp en el CRM.',
       'system',
     );
-    expect(whatsAppService.sendText.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(
       conversationsService.setMode.mock.invocationCallOrder[0],
-    );
+    ).toBeLessThan(whatsAppService.sendText.mock.invocationCallOrder[0]);
+    expect(openAiService.decide).not.toHaveBeenCalled();
     expect(
       conversationsService.setMode.mock.invocationCallOrder[0],
     ).toBeLessThan(whatsAppService.sendText.mock.invocationCallOrder[1]);
@@ -118,7 +147,7 @@ describe('AiConversationProcessor', () => {
       pipelineStage: PipelineStage.NEW,
       externalContactKey: '34600000001',
       contact: { name: 'Ana Cliente' },
-    } as any;
+    };
     const conversationsService = {
       findOne: jest.fn().mockResolvedValue(conversation),
       getRecentMessages: jest.fn().mockResolvedValue([
@@ -129,16 +158,17 @@ describe('AiConversationProcessor', () => {
         },
       ]),
       updateLead: jest.fn().mockResolvedValue(conversation),
+      canAiReply: jest.fn().mockResolvedValue(true),
     };
     const whatsAppService = {
       sendText: jest.fn().mockResolvedValue(undefined),
     };
-    const processor = new AiConversationProcessor(
-      conversationsService as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      whatsAppService as any,
+    const processor = createProcessor(
+      conversationsService,
+      {},
+      {},
+      {},
+      whatsAppService,
     );
 
     await processor.process('conversation-id');
@@ -159,20 +189,14 @@ describe('AiConversationProcessor', () => {
     const whatsAppService = {
       sendText: jest.fn().mockResolvedValue(undefined),
     };
-    const processor = new AiConversationProcessor(
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      whatsAppService as any,
-    );
+    const processor = createProcessor({}, {}, {}, {}, whatsAppService);
 
-    await (processor as any).notifyHumanAttention(
+    await alertFor(processor).notifyHumanAttention(
       { externalContactKey: '34600000002', contact: { name: 'Otro lead' } },
       'Solicita una persona',
     );
-    process.env.HUMAN_ATTENTION_WHATSAPP_PHONE = '617668489';
-    await (processor as any).notifyHumanAttention(
+    process.env.HUMAN_ATTENTION_WHATSAPP_PHONE = '000000001';
+    await alertFor(processor).notifyHumanAttention(
       { externalContactKey: '34600000002', contact: { name: 'Otro lead' } },
       'Solicita una persona',
     );
@@ -188,7 +212,7 @@ describe('AiConversationProcessor', () => {
       pipelineStage: PipelineStage.NEW,
       externalContactKey: '34600000003',
       contact: { name: 'Lead con alerta fallida' },
-    } as any;
+    };
     const conversationsService = {
       findOne: jest.fn().mockResolvedValue(conversation),
       getRecentMessages: jest.fn().mockResolvedValue([
@@ -222,12 +246,12 @@ describe('AiConversationProcessor', () => {
         .mockResolvedValueOnce(undefined)
         .mockRejectedValueOnce(new Error('Fallo temporal de Meta')),
     };
-    const processor = new AiConversationProcessor(
-      conversationsService as any,
-      openAiService as any,
-      { getContext: jest.fn().mockResolvedValue('') } as any,
-      guidanceService as any,
-      whatsAppService as any,
+    const processor = createProcessor(
+      conversationsService,
+      openAiService,
+      { getContext: jest.fn().mockResolvedValue('') },
+      guidanceService,
+      whatsAppService,
     );
 
     await expect(processor.process('conversation-id')).resolves.toBeUndefined();
@@ -239,21 +263,72 @@ describe('AiConversationProcessor', () => {
     );
   });
 
+  it('keeps human mode and alerts the team even when the customer notice fails', async () => {
+    const conversation = {
+      aiMode: 'auto',
+      status: 'open',
+      pipelineStage: 'new',
+      externalContactKey: '000000001',
+    };
+    const conversations = {
+      findOne: jest.fn().mockResolvedValue(conversation),
+      getRecentMessages: jest.fn().mockResolvedValue([
+        {
+          id: 'inbound',
+          direction: 'inbound',
+          body: 'Quiero hablar con una persona',
+        },
+      ]),
+      canAiReply: jest.fn().mockResolvedValue(true),
+      setMode: jest.fn(),
+    };
+    const whatsapp = {
+      sendText: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('network unavailable'))
+        .mockResolvedValueOnce(undefined),
+    };
+    const processor = createProcessor(
+      conversations,
+      {},
+      {},
+      { isPaused: jest.fn().mockResolvedValue(false) },
+      whatsapp,
+    );
+    await expect(
+      processor.process('conversation', 'inbound'),
+    ).resolves.toBeUndefined();
+    expect(conversations.setMode).toHaveBeenCalledWith(
+      'conversation',
+      'human',
+      'Solicita una persona',
+    );
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not fall back to a second alert after an uncertain template send', async () => {
+    process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE = 'test_template';
+    const whatsapp = {
+      sendTemplate: jest.fn().mockRejectedValue(new Error('network timeout')),
+      sendText: jest.fn(),
+    };
+    const processor = createProcessor({}, {}, {}, {}, whatsapp);
+    await alertFor(processor).notifyHumanAttention(
+      { externalContactKey: '000000001' },
+      'Prueba',
+    );
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+  });
+
   it('uses the configured Meta template for an alert', async () => {
     process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE = 'alerta_atencion_humana';
     const whatsAppService = {
       sendText: jest.fn(),
       sendTemplate: jest.fn().mockResolvedValue(undefined),
     };
-    const processor = new AiConversationProcessor(
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      whatsAppService as any,
-    );
+    const processor = createProcessor({}, {}, {}, {}, whatsAppService);
 
-    await (processor as any).notifyHumanAttention(
+    await alertFor(processor).notifyHumanAttention(
       {
         externalContactKey: '34600000004',
         contact: { name: 'Lead plantilla' },
@@ -276,19 +351,11 @@ describe('AiConversationProcessor', () => {
     process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE = 'alerta_atencion_humana';
     const whatsAppService = {
       sendText: jest.fn().mockResolvedValue(undefined),
-      sendTemplate: jest
-        .fn()
-        .mockRejectedValue(new Error('Plantilla pendiente')),
+      sendTemplate: jest.fn().mockRejectedValue(new DeliveryRejectedError(400)),
     };
-    const processor = new AiConversationProcessor(
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      whatsAppService as any,
-    );
+    const processor = createProcessor({}, {}, {}, {}, whatsAppService);
 
-    await (processor as any).notifyHumanAttention(
+    await alertFor(processor).notifyHumanAttention(
       { externalContactKey: '34600000005', contact: { name: 'Lead respaldo' } },
       'Solicita una persona',
     );

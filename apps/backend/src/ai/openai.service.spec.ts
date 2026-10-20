@@ -16,23 +16,26 @@ describe('OpenAiService', () => {
   it('does not send temperature to gpt-6-astra', async () => {
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.OPENAI_MODEL = 'gpt-6-astra';
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        output_text: JSON.stringify({
-          reply: 'Hola',
-          language: 'es',
-          stage: 'contacted',
-          courseInterest: null,
-          summary: null,
-          optIn: false,
-          optOut: false,
-          handoff: false,
-          handoffReason: null,
-          followUpDays: null,
-        }),
-      }),
-    });
+    const fetchMock = jest
+      .fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>()
+      .mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            output_text: JSON.stringify({
+              reply: 'Hola',
+              language: 'es',
+              stage: 'contacted',
+              courseInterest: null,
+              summary: null,
+              optIn: false,
+              optOut: false,
+              handoff: false,
+              handoffReason: null,
+              followUpDays: null,
+            }),
+          }),
+      } as Response);
     global.fetch = fetchMock as unknown as typeof fetch;
 
     await new OpenAiService().decide({
@@ -42,31 +45,37 @@ describe('OpenAiService', () => {
     });
 
     const request = JSON.parse(
-      fetchMock.mock.calls[0][1].body as string,
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
     ) as Record<string, unknown>;
     expect(request.model).toBe('gpt-6-astra');
     expect(request.temperature).toBeUndefined();
+    expect((fetchMock.mock.calls[0][1] as RequestInit).signal).toBeInstanceOf(
+      AbortSignal,
+    );
   });
 
-  it('does not hand off an informational price question when the context is available', async () => {
+  it('preserves the model handoff even for an informational price question', async () => {
     process.env.OPENAI_API_KEY = 'test-key';
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        output_text: JSON.stringify({
-          reply: 'El CMB1 cuesta 1.650 euros.',
-          language: 'es',
-          stage: 'offer_sent',
-          courseInterest: 'CMB1',
-          summary: null,
-          optIn: false,
-          optOut: false,
-          handoff: true,
-          handoffReason: 'respuesta conservadora',
-          followUpDays: null,
-        }),
-      }),
-    });
+    const fetchMock = jest
+      .fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>()
+      .mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            output_text: JSON.stringify({
+              reply: 'El CMB1 cuesta 1.650 euros.',
+              language: 'es',
+              stage: 'offer_sent',
+              courseInterest: 'CMB1',
+              summary: null,
+              optIn: false,
+              optOut: false,
+              handoff: true,
+              handoffReason: 'respuesta conservadora',
+              followUpDays: null,
+            }),
+          }),
+      } as Response);
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const decision = await new OpenAiService().decide({
@@ -77,29 +86,32 @@ describe('OpenAiService', () => {
       currentStage: 'contacted',
     });
 
-    expect(decision.handoff).toBe(false);
-    expect(decision.handoffReason).toBeNull();
+    expect(decision.handoff).toBe(true);
+    expect(decision.handoffReason).toBe('respuesta conservadora');
   });
 
   it('includes approved guidance and examples without replacing the web source', async () => {
     process.env.OPENAI_API_KEY = 'test-key';
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        output_text: JSON.stringify({
-          reply: 'Hola',
-          language: 'es',
-          stage: 'contacted',
-          courseInterest: null,
-          summary: null,
-          optIn: false,
-          optOut: false,
-          handoff: false,
-          handoffReason: null,
-          followUpDays: null,
-        }),
-      }),
-    });
+    const fetchMock = jest
+      .fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>()
+      .mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            output_text: JSON.stringify({
+              reply: 'Hola',
+              language: 'es',
+              stage: 'contacted',
+              courseInterest: null,
+              summary: null,
+              optIn: false,
+              optOut: false,
+              handoff: false,
+              handoffReason: null,
+              followUpDays: null,
+            }),
+          }),
+      } as Response);
     global.fetch = fetchMock as unknown as typeof fetch;
 
     await new OpenAiService().decide({
@@ -110,7 +122,9 @@ describe('OpenAiService', () => {
       examples: ['Gracias por escribirnos.'],
     });
 
-    const request = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
+    const request = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    ) as {
       input: Array<{ content: string }>;
     };
     expect(request.input[0].content).toContain('No uses emojis.');

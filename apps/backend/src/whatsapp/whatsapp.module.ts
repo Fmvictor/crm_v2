@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { WhatsAppDispatchService } from './whatsapp-dispatch.service';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { ContactsModule } from '../contacts/contacts.module';
@@ -14,7 +15,7 @@ import { AiModule } from '../ai/ai.module';
     forwardRef(() => AiModule),
   ],
   controllers: [WhatsAppController],
-  providers: [WhatsAppService],
+  providers: [WhatsAppService, WhatsAppDispatchService],
   exports: [WhatsAppService],
 })
 export class WhatsAppModule {}

@@ -50,6 +50,10 @@ jobs:
             fi
             git merge-base --is-ancestor HEAD "$target"
             previous=$(git rev-parse HEAD)
+            if ! git diff --quiet "$previous" "$target" -- apps/backend apps/frontend docker-compose.yml; then
+              schema_check=$(git show "$target:apps/backend/scripts/check-bot-delivery-schema.cjs")
+              printf '%s\n' "$schema_check" | docker compose exec -T backend node
+            fi
             git switch main
             git merge --ff-only "$target"
             if git diff --quiet "$previous" HEAD -- apps/backend apps/frontend docker-compose.yml; then

@@ -6,6 +6,7 @@ import { KnowledgeDocument } from '../knowledge/entities/knowledge-document.enti
 import { OpenAiService } from './openai.service';
 import { WebKnowledgeService } from './web-knowledge.service';
 import { AiConversationProcessor } from './ai-conversation.processor';
+import { AiJobStore } from './ai-job.store';
 import { AiQueueService } from './ai-queue.service';
 import { AiGuidanceService } from './ai-guidance.service';
 import { AiGuidanceController } from './ai-guidance.controller';
@@ -32,6 +33,7 @@ import { Interaction } from '../interactions/entities/interaction.entity';
     WebKnowledgeService,
     AiConversationProcessor,
     AiQueueService,
+    AiJobStore,
     AiGuidanceService,
   ],
   exports: [AiQueueService, AiGuidanceService],

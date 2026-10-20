@@ -6,20 +6,27 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import Redis from 'ioredis';
 import { AiConversationProcessor } from './ai-conversation.processor';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ConversationAiMode } from '../conversations/entities/conversation.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { AiGuidanceService } from './ai-guidance.service';
+import { AiJobStore } from './ai-job.store';
+import {
+  DeliveryBlockedError,
+  DeliveryHistoryError,
+  DeliveryRejectedError,
+  DeliveryUncertainError,
+} from '../whatsapp/whatsapp-dispatch.service';
 
 @Injectable()
 export class AiQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AiQueueService.name);
-  private redis: Redis | null = null;
-  private running = false;
-  private timer: NodeJS.Timeout | null = null;
+  private timer?: NodeJS.Timeout;
+  private followUpTimer?: NodeJS.Timeout;
+  private processing = false;
   private processingFollowUps = false;
+  private stopped = false;
 
   constructor(
     private readonly processor: AiConversationProcessor,
@@ -28,104 +35,148 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
     @Inject(forwardRef(() => WhatsAppService))
     private readonly whatsAppService: WhatsAppService,
     private readonly guidance: AiGuidanceService,
+    private readonly jobs: AiJobStore,
   ) {}
 
   onModuleInit() {
-    if (process.env.AI_WHATSAPP_ENABLED !== 'true') return;
-    if (process.env.REDIS_URL) {
-      this.redis = new Redis(process.env.REDIS_URL, {
-        maxRetriesPerRequest: null,
-      });
-      this.redis.on('error', (error) =>
-        this.logger.warn(`Redis IA: ${error.message}`),
-      );
-      this.running = true;
-      void this.consume();
-      this.timer = setInterval(() => void this.processFollowUps(), 60_000);
-    }
-  }
-
-  async enqueue(conversationId: string) {
-    if (process.env.AI_WHATSAPP_ENABLED !== 'true') return;
-    const conversation =
-      await this.conversationsService.findOne(conversationId);
-    if (!this.isAllowedPhone(conversation.contact.phone)) return;
-    if (!this.redis) return this.processor.process(conversationId);
-    await this.redis.lpush(
-      'emeb:whatsapp:ai',
-      JSON.stringify({ conversationId }),
+    if (!this.isEnabled()) return;
+    this.timer = setInterval(() => void this.consume(), 1000);
+    this.followUpTimer = setInterval(
+      () => void this.processFollowUps(),
+      60_000,
     );
   }
 
-  private async consume() {
-    while (this.running && this.redis) {
+  isEnabled(): boolean {
+    return (
+      process.env.AI_WHATSAPP_ENABLED === 'true' &&
+      process.env.AI_RELIABLE_DELIVERY_ENABLED === 'true'
+    );
+  }
+
+  acceptsPhone(phone: string | null | undefined): boolean {
+    if (!this.isEnabled()) return false;
+    const normalize = (value: string) => value.replace(/\D/g, '');
+    const allowed = (process.env.AI_WHATSAPP_TEST_PHONES ?? '')
+      .split(',')
+      .map(normalize)
+      .filter(Boolean);
+    // Activation requires an explicit audience. A wildcard is a deliberate rollout decision.
+    return (
+      process.env.AI_WHATSAPP_TEST_PHONES?.trim() === '*' ||
+      allowed.includes(normalize(phone ?? ''))
+    );
+  }
+
+  private async consume(): Promise<void> {
+    if (this.processing || this.stopped) return;
+    this.processing = true;
+    let heartbeat: NodeJS.Timeout | undefined;
+    try {
+      if (await this.guidance.isPaused()) return;
+      const job = await this.jobs.claim();
+      if (!job) return;
+      heartbeat = setInterval(() => {
+        void this.jobs
+          .renew(job)
+          .catch(() => this.logger.error('No se pudo renovar el trabajo IA.'));
+      }, 20_000);
       try {
-        const item = await this.redis.brpop('emeb:whatsapp:ai', 5);
-        if (!item) continue;
-        const payload = JSON.parse(item[1]) as { conversationId: string };
-        await this.processor.process(payload.conversationId);
+        const current = await this.conversationsService.findOne(
+          job.conversationId,
+        );
+        if (!this.acceptsPhone(current.contact.phone)) {
+          await this.jobs.finish(job);
+          return;
+        }
+        if (await this.jobs.needsDeliveryReview(job))
+          throw new DeliveryUncertainError();
+        if (job.attempts > 3) throw new Error('Intentos agotados');
+        await this.processor.process(job.conversationId, job.inboundMessageId);
+        await this.jobs.finish(job);
       } catch (error) {
+        if (error instanceof DeliveryBlockedError) {
+          await this.jobs.finish(job);
+          return;
+        }
+        const terminal =
+          job.attempts >= 3 ||
+          error instanceof DeliveryRejectedError ||
+          error instanceof DeliveryUncertainError ||
+          error instanceof DeliveryHistoryError;
+        if (terminal) {
+          // Persist the handoff before closing the failed job. A DB failure leaves it recoverable.
+          await this.conversationsService.setMode(
+            job.conversationId,
+            ConversationAiMode.HUMAN,
+            error instanceof DeliveryUncertainError
+              ? 'Envío incierto: revisar antes de reenviar.'
+              : 'Fallo de atención automática: requiere revisión.',
+          );
+        }
+        await this.jobs.fail(job, terminal);
         this.logger.error(
-          `Error procesando cola IA: ${error instanceof Error ? error.message : 'error desconocido'}`,
+          terminal
+            ? 'Trabajo IA derivado a revisión humana.'
+            : 'Trabajo IA pendiente de reintento limitado.',
         );
       }
+    } catch {
+      this.logger.error('No se pudo procesar la cola persistente IA.');
+    } finally {
+      if (heartbeat) clearInterval(heartbeat);
+      this.processing = false;
     }
   }
 
-  private async processFollowUps() {
-    if (this.processingFollowUps) return;
+  private async processFollowUps(): Promise<void> {
+    if (this.processingFollowUps || this.stopped) return;
     this.processingFollowUps = true;
     try {
       if (await this.guidance.isPaused()) return;
-      const due = await this.conversationsService.findDueFollowUps();
-      for (const conversation of due) {
+      for (const conversation of await this.conversationsService.findDueFollowUps()) {
         if (
           conversation.aiMode !== ConversationAiMode.AUTO ||
-          !conversation.optInAt
+          !conversation.optInAt ||
+          conversation.optOutAt
         )
           continue;
-        if (!this.isAllowedPhone(conversation.contact.phone)) continue;
+        if (!this.acceptsPhone(conversation.contact.phone)) continue;
         if (await this.guidance.isPaused()) break;
         try {
           const sent =
             await this.whatsAppService.sendConfiguredFollowUp(conversation);
-          if (sent)
-            await this.conversationsService.markFollowUpSent(conversation.id);
-        } catch {
-          // No registrar la respuesta del proveedor: puede contener datos personales.
+          if (!sent) throw new DeliveryRejectedError(0);
+          await this.conversationsService.markFollowUpSent(
+            conversation.id,
+            conversation.followUpStep,
+            conversation.nextFollowUpAt,
+          );
+        } catch (error) {
+          if (error instanceof DeliveryBlockedError) continue;
+          // Follow-ups are discretionary: never retry an ambiguous delivery or a missing template every minute.
+          await this.conversationsService.setMode(
+            conversation.id,
+            ConversationAiMode.HUMAN,
+            error instanceof DeliveryUncertainError
+              ? 'Seguimiento con envío incierto: revisar sin reenviar.'
+              : 'Seguimiento fallido: revisar plantilla y configuración.',
+          );
           this.logger.error(
-            'Fallo de seguimiento automático; se conserva pendiente.',
+            'Seguimiento detenido y derivado a revisión humana.',
           );
         }
       }
     } catch {
-      this.logger.error(
-        'No se pudo revisar la cola de seguimientos automáticos.',
-      );
+      this.logger.error('No se pudo revisar los seguimientos automáticos.');
     } finally {
       this.processingFollowUps = false;
     }
   }
 
-  private allowedPhones(): string[] {
-    return (process.env.AI_WHATSAPP_TEST_PHONES ?? '')
-      .split(',')
-      .map((phone) => this.normalizePhone(phone))
-      .filter(Boolean);
-  }
-
-  private isAllowedPhone(phone: string | null | undefined): boolean {
-    const allowed = this.allowedPhones();
-    return allowed.length === 0 || allowed.includes(this.normalizePhone(phone));
-  }
-
-  private normalizePhone(phone: string | null | undefined): string {
-    return (phone ?? '').replace(/\D/g, '');
-  }
-
-  async onModuleDestroy() {
-    this.running = false;
+  onModuleDestroy() {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
-    if (this.redis) await this.redis.quit();
+    if (this.followUpTimer) clearInterval(this.followUpTimer);
   }
 }
