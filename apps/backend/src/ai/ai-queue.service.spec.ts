@@ -50,6 +50,7 @@ describe('Persistent AI queue', () => {
     jobs.claim.mockResolvedValue(job);
     jobs.needsDeliveryReview.mockResolvedValue(false);
     conversations.findOne.mockResolvedValue({
+      externalContactKey: '000000001',
       contact: { phone: '000000001' },
     });
     service = new AiQueueService(
@@ -82,6 +83,24 @@ describe('Persistent AI queue', () => {
     expect(jobs.finish.mock.invocationCallOrder[0]).toBeGreaterThan(
       processor.process.mock.invocationCallOrder[0],
     );
+  });
+  it('authorizes the WhatsApp sender even when the CRM contact has a different phone representation', async () => {
+    process.env.AI_WHATSAPP_TEST_PHONES = '000000001';
+    conversations.findOne.mockResolvedValue({
+      externalContactKey: '000000001',
+      contact: { phone: 'different-contact-phone' },
+    });
+    await consume();
+    expect(processor.process).toHaveBeenCalledWith('conversation', 'inbound');
+  });
+  it('does not authorize another WhatsApp conversation through an allowed contact phone', async () => {
+    process.env.AI_WHATSAPP_TEST_PHONES = '000000001';
+    conversations.findOne.mockResolvedValue({
+      externalContactKey: '000000002',
+      contact: { phone: '000000001' },
+    });
+    await consume();
+    expect(processor.process).not.toHaveBeenCalled();
   });
   it('retains a generation failure for a bounded retry', async () => {
     processor.process.mockRejectedValue(new Error('provider unavailable'));
