@@ -1,6 +1,7 @@
 /* Ejecutar desde el directorio de la imagen actual, con dist/ y node_modules/.
  * No inicia NestJS, no conecta a PostgreSQL/Redis y no instancia WhatsAppService.
- * Sólo permite GET a www.emeb.es y hasta 16 POST al modelo existente de OpenAI.
+ * Sólo permite GET a www.emeb.es, conteo de entrada y hasta 16 generaciones.
+ * Requiere un presupuesto de evaluación explícito, separado del registro del bot.
  * Estado, envíos e historial de cada caso son sintéticos y viven en memoria.
  */
 'use strict';
@@ -24,6 +25,47 @@ if (process.env.BOT_COMMERCIAL_EVAL_ENABLED !== 'true')
   throw Error(
     'Se requiere autorización explícita para las llamadas de evaluación',
   );
+const { AI_PRICING, reserveCost, usageCost, parseUsage } = require(
+  path.join(compiled, 'ai/ai-pricing.js'),
+);
+const evaluationLimit = Number(process.env.BOT_COMMERCIAL_EVAL_BUDGET_EUR);
+if (
+  !Number.isFinite(evaluationLimit) ||
+  evaluationLimit <= 0 ||
+  evaluationLimit > 100
+)
+  throw Error(
+    'Configurar BOT_COMMERCIAL_EVAL_BUDGET_EUR (máximo 100) para esta evaluación aislada',
+  );
+const reservations = new Map();
+let evaluationCharged = 0;
+const accounting = {
+  assertAvailable: async () => {
+    if (evaluationCharged >= evaluationLimit * 1e6)
+      throw Error('Presupuesto de evaluación agotado');
+  },
+  reserve: async (model, input) => {
+    if (model !== AI_PRICING.model) throw Error('Tarifa no verificada');
+    const amount = reserveCost(input);
+    if (evaluationCharged + amount > evaluationLimit * 1e6)
+      throw Error('Saldo de evaluación insuficiente');
+    const id = String(reservations.size);
+    reservations.set(id, amount);
+    evaluationCharged += amount;
+    return id;
+  },
+  settle: async (id, payload) => {
+    const usage = parseUsage(payload.usage);
+    if (!usage) throw Error('Consumo de evaluación incierto');
+    evaluationCharged += usageCost(usage).eurMicros - reservations.get(id);
+    reservations.set(id, 0);
+  },
+  uncertain: async () => {},
+  rejected: async (id) => {
+    evaluationCharged -= reservations.get(id);
+    reservations.set(id, 0);
+  },
+};
 const cases = JSON.parse(
   fs.readFileSync(
     process.argv[2] || path.join(__dirname, 'fixtures/commercial-cases.json'),
@@ -60,9 +102,13 @@ global.fetch = async (url, options) => {
     return new Response(snapshot.html, { status: snapshot.status });
   }
   if (
-    u.href === 'https://api.openai.com/v1/responses' &&
+    [
+      'https://api.openai.com/v1/responses',
+      'https://api.openai.com/v1/responses/input_tokens',
+    ].includes(u.href) &&
     options?.method === 'POST'
   ) {
+    if (u.pathname.endsWith('/input_tokens')) return realFetch(u, options);
     if (++modelCalls > 16) throw Error('Límite de llamadas de evaluación');
     const r = await realFetch(u, options);
     if (r.ok) activeUsage = (await r.clone().json()).usage ?? null;
@@ -106,7 +152,7 @@ global.fetch = async (url, options) => {
       },
     };
     const knowledge = new WebKnowledgeService(repository);
-    const model = new OpenAiService();
+    const model = new OpenAiService(accounting);
     const processor = new AiConversationProcessor(
       {
         findOne: async () => conversation,

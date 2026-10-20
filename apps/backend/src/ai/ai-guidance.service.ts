@@ -1,3 +1,4 @@
+import { AiUsageService } from './ai-usage.service';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,6 +18,7 @@ export class AiGuidanceService {
     private readonly controlRepo: Repository<BotControl>,
     @InjectRepository(Interaction)
     private readonly interactionsRepo: Repository<Interaction>,
+    private readonly usage: AiUsageService,
   ) {}
 
   async getLatestInstruction(): Promise<string | null> {
@@ -126,6 +128,7 @@ export class AiGuidanceService {
   }
 
   async setPaused(paused: boolean, updatedById: string): Promise<BotControl> {
+    if (!paused) return this.usage.resume(updatedById);
     const control =
       (await this.controlRepo.findOne({ where: { id: 1 } })) ??
       this.controlRepo.create({ id: 1 });

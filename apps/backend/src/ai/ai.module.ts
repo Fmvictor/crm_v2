@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { KnowledgeDocument } from '../knowledge/entities/knowledge-document.entity';
+import { AiUsageService } from './ai-usage.service';
+import { AiUsageController } from './ai-usage.controller';
 import { OpenAiService } from './openai.service';
 import { WebKnowledgeService } from './web-knowledge.service';
 import { AiConversationProcessor } from './ai-conversation.processor';
@@ -27,8 +29,9 @@ import { Interaction } from '../interactions/entities/interaction.entity';
     ConversationsModule,
     forwardRef(() => WhatsAppModule),
   ],
-  controllers: [AiGuidanceController],
+  controllers: [AiGuidanceController, AiUsageController],
   providers: [
+    AiUsageService,
     OpenAiService,
     WebKnowledgeService,
     AiConversationProcessor,

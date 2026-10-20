@@ -10,6 +10,7 @@ import {
 } from '../conversations/entities/conversation-message.entity';
 import { PipelineEventActor } from '../conversations/entities/pipeline-event.entity';
 import { PipelineStage } from '../pipeline/pipeline-stage.enum';
+import { AiBudgetBlockedError } from './ai-usage.service';
 import { OpenAiService } from './openai.service';
 import { WebKnowledgeService } from './web-knowledge.service';
 import { DeliveryRejectedError } from '../whatsapp/whatsapp-dispatch.service';
@@ -120,16 +121,29 @@ export class AiConversationProcessor {
       this.guidanceService.getLatestInstruction(),
       this.guidanceService.getApprovedExamples(),
     ]);
-    const decision = await this.openAiService.decide({
-      currentStage: conversation.pipelineStage,
-      webContext,
-      instructions,
-      examples,
-      messages: messages.map((message) => ({
-        direction: message.direction,
-        body: message.body,
-      })),
-    });
+    let decision: Awaited<ReturnType<OpenAiService['decide']>>;
+    try {
+      decision = await this.openAiService.decide({
+        conversationId,
+        currentStage: conversation.pipelineStage,
+        webContext,
+        instructions,
+        examples,
+        messages: messages.map((message) => ({
+          direction: message.direction,
+          body: message.body,
+        })),
+      });
+    } catch (error) {
+      if (!(error instanceof AiBudgetBlockedError)) throw error;
+      await this.conversationsService.setMode(
+        conversationId,
+        ConversationAiMode.HUMAN,
+        error.reason,
+        `budget:${lastInbound.id}`,
+      );
+      return;
+    }
     if (
       (await this.guidanceService.isPaused()) ||
       !(await this.conversationsService.canAiReply(

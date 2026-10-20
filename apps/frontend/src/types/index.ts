@@ -87,3 +87,28 @@ export interface AiLearning {
   approvedText: string | null;
   createdAt: string;
 }
+
+export interface AiUsageSummary {
+  period: string;
+  timezone: string;
+  currency: string;
+  monthlyLimitEur: number;
+  accountedEur: number;
+  pendingEur: number;
+  remainingEur: number;
+  calls: number;
+  completed: number;
+  uncertain: number;
+  reserved: number;
+  rejected: number;
+  inputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  blocked: boolean;
+  blockedReason: string | null;
+  version: number;
+  trackingSince: string;
+  pricing: { model: string; usdPerEur: number; checkedAt: string; exchangeDate: string; validUntil: string };
+}

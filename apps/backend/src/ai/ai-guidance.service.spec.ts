@@ -1,18 +1,24 @@
 import { AiGuidanceService } from './ai-guidance.service';
-import { BotLearningStatus } from './entities/bot-learning.entity';
+import { Repository } from 'typeorm';
+import { BotInstruction } from './entities/bot-instruction.entity';
+import { BotControl } from './entities/bot-control.entity';
+import { Interaction } from '../interactions/entities/interaction.entity';
+import { AiUsageService } from './ai-usage.service';
+import { BotLearning, BotLearningStatus } from './entities/bot-learning.entity';
 
 describe('AiGuidanceService', () => {
   it('creates one pending candidate for a manual answer', async () => {
     const learningsRepo = {
       findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockImplementation((value) => value),
+      create: jest.fn().mockImplementation((value: unknown) => value),
       save: jest.fn().mockResolvedValue(undefined),
     };
     const service = new AiGuidanceService(
-      {} as any,
-      learningsRepo as any,
-      {} as any,
-      {} as any,
+      {} as Repository<BotInstruction>,
+      learningsRepo as unknown as Repository<BotLearning>,
+      {} as Repository<BotControl>,
+      {} as Repository<Interaction>,
+      {} as AiUsageService,
     );
 
     await service.captureManualResponse('interaction-id');
@@ -37,7 +43,7 @@ describe('AiGuidanceService', () => {
     };
     const learningsRepo = {
       findOne: jest.fn().mockResolvedValue(learning),
-      save: jest.fn().mockImplementation((value) => value),
+      save: jest.fn().mockImplementation((value: unknown) => value),
     };
     const interactionsRepo = {
       findOne: jest
@@ -45,10 +51,11 @@ describe('AiGuidanceService', () => {
         .mockResolvedValue({ notes: 'Respuesta enviada por el equipo.' }),
     };
     const service = new AiGuidanceService(
-      {} as any,
-      learningsRepo as any,
-      {} as any,
-      interactionsRepo as any,
+      {} as Repository<BotInstruction>,
+      learningsRepo as unknown as Repository<BotLearning>,
+      {} as Repository<BotControl>,
+      interactionsRepo as unknown as Repository<Interaction>,
+      {} as AiUsageService,
     );
 
     const reviewed = await service.reviewLearning(
