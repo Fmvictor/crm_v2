@@ -15,6 +15,12 @@ import { WebKnowledgeService } from './web-knowledge.service';
 import { DeliveryRejectedError } from '../whatsapp/whatsapp-dispatch.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { AiGuidanceService } from './ai-guidance.service';
+import {
+  conversationLanguage,
+  handoffNotice,
+  humanRequest,
+  HandoffLanguage,
+} from './conversation-language';
 
 const AI_STAGES = new Set<string>([
   PipelineStage.NEW,
@@ -91,21 +97,26 @@ export class AiConversationProcessor {
     }
 
     if (await this.guidanceService.isPaused()) return;
-    if (
-      /\b(persona|humano|hablar con alguien|human|agent|speak to someone)\b/i.test(
-        lastInbound.body,
-      )
-    ) {
+    if (humanRequest(lastInbound.body)) {
       await this.handoff(
         conversationId,
         conversation,
         lastInbound.id,
         'Solicita una persona',
+        conversationLanguage(lastInbound.body, conversation.language),
       );
       return;
     }
     const [webContext, instructions, examples] = await Promise.all([
-      this.webKnowledgeService.getContext(lastInbound.body),
+      this.webKnowledgeService.getContext(lastInbound.body, {
+        previousMessages: messages
+          .slice(0, messages.indexOf(lastInbound))
+          .map((message) => ({
+            direction: message.direction,
+            body: message.body,
+          })),
+        courseInterest: conversation.contact?.courseInterest,
+      }),
       this.guidanceService.getLatestInstruction(),
       this.guidanceService.getApprovedExamples(),
     ]);
@@ -168,6 +179,10 @@ export class AiConversationProcessor {
         conversation,
         lastInbound.id,
         decision.handoffReason ?? 'Derivación solicitada por IA',
+        conversationLanguage(
+          lastInbound.body,
+          decision.language ?? conversation.language,
+        ),
       );
       return;
     }
@@ -178,6 +193,10 @@ export class AiConversationProcessor {
         conversation,
         lastInbound.id,
         'La IA no devolvió una respuesta útil.',
+        conversationLanguage(
+          lastInbound.body,
+          decision.language ?? conversation.language,
+        ),
       );
       return;
     }
@@ -210,6 +229,7 @@ export class AiConversationProcessor {
     },
     inboundMessageId: string,
     reason: string,
+    language: HandoffLanguage,
   ): Promise<void> {
     await this.conversationsService.setMode(
       conversationId,
@@ -219,7 +239,7 @@ export class AiConversationProcessor {
     try {
       await this.whatsAppService.sendText(
         conversation.externalContactKey,
-        'Te paso con alguien del equipo para que te ayude lo antes posible.',
+        handoffNotice(language),
         ConversationMessageActor.AI,
         undefined,
         {
