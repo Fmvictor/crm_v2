@@ -1,3 +1,12 @@
+import { parseMetaWebhook } from './meta-webhook';
+import { randomUUID } from 'node:crypto';
+import {
+  WhatsAppDispatchService,
+  DeliveryBlockedError,
+  DeliveryRejectedError,
+  DeliveryUncertainError,
+  DeliveryHistoryError,
+} from './whatsapp-dispatch.service';
 import {
   Injectable,
   Logger,
@@ -16,6 +25,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import {
   Conversation,
   ConversationAiMode,
+  ConversationStatus,
 } from '../conversations/entities/conversation.entity';
 import {
   ConversationMessageActor,
@@ -23,6 +33,16 @@ import {
 } from '../conversations/entities/conversation-message.entity';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AiGuidanceService } from '../ai/ai-guidance.service';
+
+export interface AutomaticDelivery {
+  key: string;
+  conversationId: string;
+  inboundMessageId?: string;
+  policy: 'reply' | 'handoff' | 'followup';
+  handoffReason?: string;
+  followUpStep?: number;
+  dueAt?: string;
+}
 
 export interface SendTemplateOptions {
   to: string;
@@ -46,12 +66,37 @@ export class WhatsAppService {
     private readonly aiQueueService: AiQueueService,
     @Inject(forwardRef(() => AiGuidanceService))
     private readonly guidanceService: AiGuidanceService,
+    private readonly dispatches: WhatsAppDispatchService,
   ) {}
 
   async sendTemplate(
     options: SendTemplateOptions,
     actor: ConversationMessageActor = ConversationMessageActor.SYSTEM,
     createdById?: string,
+    automatic?: AutomaticDelivery,
+  ): Promise<void> {
+    if (automatic) {
+      return this.conversationsService.withConversationLock(
+        automatic.conversationId,
+        async () => {
+          await this.assertAutomaticDelivery(automatic);
+          return this.sendTemplateRecorded(
+            options,
+            actor,
+            createdById,
+            automatic.key,
+          );
+        },
+      );
+    }
+    return this.sendTemplateRecorded(options, actor, createdById, randomUUID());
+  }
+
+  private async sendTemplateRecorded(
+    options: SendTemplateOptions,
+    actor: ConversationMessageActor,
+    createdById: string | undefined,
+    dispatchKey: string,
   ): Promise<void> {
     const { to, templateName, languageCode = 'es', params = [] } = options;
 
@@ -61,12 +106,11 @@ export class WhatsAppService {
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
 
     if (!token || !phoneNumberId) {
-      this.logger.warn('WhatsApp no configurado, omitiendo envío');
-      return;
+      throw new DeliveryRejectedError(0);
     }
 
     // Normalizar teléfono: quitar espacios, guiones y asegurar prefijo internacional
-    const phone = to.replace(/[\s\-\(\)]/g, '');
+    const phone = to.replace(/[\s()-]/g, '');
 
     const body = {
       messaging_product: 'whatsapp',
@@ -86,28 +130,24 @@ export class WhatsAppService {
       },
     };
 
+    if (actor === ConversationMessageActor.AGENT) {
+      const contact = await this.contactsService.findOneByPhone(phone);
+      if (contact) {
+        const conversation = await this.conversationsService.findOrCreate(
+          contact,
+          phone,
+        );
+        await this.conversationsService.setMode(
+          conversation.id,
+          ConversationAiMode.HUMAN,
+          'Respuesta manual del equipo',
+        );
+      }
+    }
     const url = `${apiUrl}/${phoneNumberId}/messages`;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const error = await res.text();
-      throw new Error(`WhatsApp API error ${res.status}: ${error}`);
-    }
-
-    const responsePayload = (await res
-      .clone()
-      .json()
-      .catch(() => ({}))) as { messages?: Array<{ id?: string }> };
-    this.logger.log(
-      `WhatsApp enviado a ${phone} con plantilla "${templateName}"`,
+    const providerId = await this.dispatches.deliver(dispatchKey, body, () =>
+      this.sendToMeta(url, token, body),
     );
 
     // Log internally as interaction
@@ -119,7 +159,7 @@ export class WhatsAppService {
           phone,
         );
         await this.conversationsService.recordMessage(conversation, {
-          externalMessageId: responsePayload.messages?.[0]?.id ?? null,
+          externalMessageId: providerId,
           direction: ConversationMessageDirection.OUTBOUND,
           actor,
           body: `[Plantilla WhatsApp: ${templateName}]`,
@@ -131,19 +171,15 @@ export class WhatsAppService {
           direction: InteractionDirection.OUTBOUND,
           notes: `WhatsApp enviado (plantilla: ${templateName})`,
           createdById,
+          externalMessageId: providerId,
         });
-        if (actor === ConversationMessageActor.AGENT) {
-          await this.conversationsService.setMode(
-            conversation.id,
-            ConversationAiMode.HUMAN,
-            'Respuesta manual del equipo',
-          );
-        }
       }
-    } catch (err) {
+      await this.dispatches.recorded(dispatchKey);
+    } catch {
       this.logger.error(
-        `Error registrando interacción de WhatsApp saliente: ${err.message}`,
+        'Meta aceptó el envío, pero falta completar su registro.',
       );
+      throw new DeliveryHistoryError();
     }
   }
 
@@ -152,6 +188,32 @@ export class WhatsAppService {
     text: string,
     actor: ConversationMessageActor = ConversationMessageActor.SYSTEM,
     createdById?: string,
+    automatic?: AutomaticDelivery,
+  ): Promise<void> {
+    if (automatic) {
+      return this.conversationsService.withConversationLock(
+        automatic.conversationId,
+        async () => {
+          await this.assertAutomaticDelivery(automatic);
+          return this.sendTextRecorded(
+            to,
+            text,
+            actor,
+            createdById,
+            automatic.key,
+          );
+        },
+      );
+    }
+    return this.sendTextRecorded(to, text, actor, createdById, randomUUID());
+  }
+
+  private async sendTextRecorded(
+    to: string,
+    text: string,
+    actor: ConversationMessageActor,
+    createdById: string | undefined,
+    dispatchKey: string,
   ): Promise<void> {
     const apiUrl =
       process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v19.0';
@@ -159,11 +221,10 @@ export class WhatsAppService {
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
 
     if (!token || !phoneNumberId) {
-      this.logger.warn('WhatsApp no configurado, omitiendo envío');
-      return;
+      throw new DeliveryRejectedError(0);
     }
 
-    const phone = to.replace(/[\s\-\(\)]/g, '');
+    const phone = to.replace(/[\s()-]/g, '');
 
     const body = {
       messaging_product: 'whatsapp',
@@ -172,26 +233,24 @@ export class WhatsAppService {
       text: { body: text },
     };
 
-    const url = `${apiUrl}/${phoneNumberId}/messages`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const error = await res.text();
-      throw new Error(`WhatsApp API error ${res.status}: ${error}`);
+    if (actor === ConversationMessageActor.AGENT) {
+      const contact = await this.contactsService.findOneByPhone(phone);
+      if (contact) {
+        const conversation = await this.conversationsService.findOrCreate(
+          contact,
+          phone,
+        );
+        await this.conversationsService.setMode(
+          conversation.id,
+          ConversationAiMode.HUMAN,
+          'Respuesta manual del equipo',
+        );
+      }
     }
-
-    const responsePayload = (await res
-      .clone()
-      .json()
-      .catch(() => ({}))) as { messages?: Array<{ id?: string }> };
-    this.logger.log(`WhatsApp texto enviado a ${phone}`);
+    const url = `${apiUrl}/${phoneNumberId}/messages`;
+    const providerId = await this.dispatches.deliver(dispatchKey, body, () =>
+      this.sendToMeta(url, token, body),
+    );
 
     try {
       const contact = await this.contactsService.findOneByPhone(phone);
@@ -201,7 +260,7 @@ export class WhatsAppService {
           phone,
         );
         await this.conversationsService.recordMessage(conversation, {
-          externalMessageId: responsePayload.messages?.[0]?.id ?? null,
+          externalMessageId: providerId,
           direction: ConversationMessageDirection.OUTBOUND,
           actor,
           body: text,
@@ -214,21 +273,90 @@ export class WhatsAppService {
             direction: InteractionDirection.OUTBOUND,
             notes: text,
             createdById,
+            externalMessageId: providerId,
           });
         if (actor === ConversationMessageActor.AGENT) {
           await this.guidanceService.captureManualResponse(interaction.id);
-          await this.conversationsService.setMode(
-            conversation.id,
-            ConversationAiMode.HUMAN,
-            'Respuesta manual del equipo',
-          );
         }
       }
-    } catch (err) {
+      await this.dispatches.recorded(dispatchKey);
+    } catch {
       this.logger.error(
-        `Error registrando interacción de WhatsApp saliente: ${err.message}`,
+        'Meta aceptó el envío, pero falta completar su registro.',
       );
+      throw new DeliveryHistoryError();
     }
+  }
+
+  private async assertAutomaticDelivery(
+    delivery: AutomaticDelivery,
+  ): Promise<void> {
+    if (
+      process.env.AI_RELIABLE_DELIVERY_ENABLED !== 'true' ||
+      process.env.AI_WHATSAPP_ENABLED !== 'true' ||
+      (await this.guidanceService.isPaused())
+    )
+      throw new DeliveryBlockedError();
+    const conversation = await this.conversationsService.findOne(
+      delivery.conversationId,
+    );
+    if (
+      conversation.status !== ConversationStatus.OPEN ||
+      conversation.optOutAt
+    )
+      throw new DeliveryBlockedError();
+    if (delivery.policy === 'reply') {
+      if (
+        !delivery.inboundMessageId ||
+        !(await this.conversationsService.canAiReply(
+          delivery.conversationId,
+          delivery.inboundMessageId,
+        ))
+      )
+        throw new DeliveryBlockedError();
+    } else if (delivery.policy === 'handoff') {
+      if (
+        conversation.aiMode !== ConversationAiMode.HUMAN ||
+        conversation.handoffReason !== delivery.handoffReason?.slice(0, 255) ||
+        conversation.messages?.at(-1)?.id !== delivery.inboundMessageId ||
+        !conversation.lastInboundAt ||
+        Date.now() - conversation.lastInboundAt.getTime() > 24 * 60 * 60 * 1000
+      )
+        throw new DeliveryBlockedError();
+    } else if (
+      conversation.aiMode !== ConversationAiMode.AUTO ||
+      !conversation.optInAt ||
+      !conversation.nextFollowUpAt ||
+      conversation.nextFollowUpAt.getTime() > Date.now() ||
+      conversation.followUpStep !== delivery.followUpStep ||
+      conversation.nextFollowUpAt.toISOString() !== delivery.dueAt
+    )
+      throw new DeliveryBlockedError();
+  }
+
+  private async sendToMeta(
+    url: string,
+    token: string,
+    body: unknown,
+  ): Promise<string> {
+    const response = await fetch(url, {
+      method: 'POST',
+      signal: AbortSignal.timeout(20_000),
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      if (response.status >= 500 || response.status === 408)
+        throw new DeliveryUncertainError();
+      throw new DeliveryRejectedError(response.status);
+    }
+    const payload = (await response.json()) as {
+      messages?: Array<{ id?: string }>;
+    };
+    return payload.messages?.[0]?.id ?? '';
   }
 
   async getTemplates(): Promise<
@@ -246,12 +374,12 @@ export class WhatsAppService {
 
     const url = `${apiUrl}/${businessAccountId}/message_templates?limit=100&fields=name,status,language`;
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(20_000),
       headers: { Authorization: `Bearer ${token}` },
     });
 
     if (!res.ok) {
-      const error = await res.text();
-      throw new Error(`WhatsApp templates API error ${res.status}: ${error}`);
+      throw new Error(`WhatsApp templates API error ${res.status}`);
     }
 
     const json = (await res.json()) as {
@@ -260,11 +388,7 @@ export class WhatsAppService {
     return json.data ?? [];
   }
 
-  async verifyWebhook(
-    mode: string,
-    token: string,
-    challenge: string,
-  ): Promise<string> {
+  verifyWebhook(mode: string, token: string, challenge: string): string {
     const MY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
     if (mode === 'subscribe' && token === MY_TOKEN) {
       return challenge;
@@ -288,7 +412,8 @@ export class WhatsAppService {
     }
   }
 
-  async handleWebhook(body: any): Promise<void> {
+  async handleWebhook(input: unknown): Promise<void> {
+    const body = parseMetaWebhook(input);
     this.logger.log('Webhook de WhatsApp recibido');
     let processingFailed = false;
 
@@ -322,7 +447,7 @@ export class WhatsAppService {
             const isOutbound = !!(
               displayPhone && msgFromClean === displayPhone
             );
-            const targetPhone = isOutbound ? (msg as any).to : from;
+            const targetPhone = isOutbound ? msg.to : from;
             const direction = isOutbound
               ? ConversationMessageDirection.OUTBOUND
               : ConversationMessageDirection.INBOUND;
@@ -371,6 +496,10 @@ export class WhatsAppService {
                 body: text,
                 messageType: msg.type ?? 'text',
                 metadata: { provider: 'meta', messageType: msg.type ?? 'text' },
+                queueAi:
+                  !isOutbound &&
+                  this.aiQueueService.acceptsPhone(targetPhone) &&
+                  !(await this.guidanceService.isPaused()),
                 providerTimestamp: msg.timestamp
                   ? new Date(Number(msg.timestamp) * 1000)
                   : null,
@@ -387,23 +516,16 @@ export class WhatsAppService {
                   ? new Date(Number(msg.timestamp) * 1000)
                   : undefined,
               });
-              if (
-                !isOutbound &&
-                process.env.AI_WHATSAPP_ENABLED === 'true' &&
-                !(await this.guidanceService.isPaused())
-              ) {
-                await this.aiQueueService.enqueue(conversation.id);
-              }
               this.logger.log('Interacción WA guardada correctamente');
             } else {
               this.logger.warn(
                 `Mensaje WA para …${targetPhone.slice(-4)} ignorado (sin contacto y no es entrante)`,
               );
             }
-          } catch (err) {
+          } catch {
             processingFailed = true;
             this.logger.error(
-              `Error procesando mensaje WA ${msg.id ?? 'sin-id'}: ${err instanceof Error ? err.message : 'error desconocido'}`,
+              'No se pudo guardar por completo un mensaje de WhatsApp; se requiere reintento.',
             );
           }
         }
@@ -429,6 +551,14 @@ export class WhatsAppService {
         params: [conversation.contact.name],
       },
       ConversationMessageActor.SYSTEM,
+      undefined,
+      {
+        key: `followup:${conversation.id}:${conversation.followUpStep}:${conversation.nextFollowUpAt?.toISOString()}`,
+        conversationId: conversation.id,
+        policy: 'followup',
+        followUpStep: conversation.followUpStep,
+        dueAt: conversation.nextFollowUpAt?.toISOString(),
+      },
     );
     return true;
   }

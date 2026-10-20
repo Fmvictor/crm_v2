@@ -33,8 +33,6 @@ services:
       - '100.72.62.103:3000:3000'
     environment:
       PORT: '3000'
-    env_file:
-      - .env
     depends_on:
       - backend
     networks:

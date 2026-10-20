@@ -13,6 +13,7 @@ import {
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { WhatsAppService } from './whatsapp.service';
+import type { SendTemplateOptions } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User, UserRole } from '../users/entities/user.entity';
 import { ConversationMessageActor } from '../conversations/entities/conversation-message.entity';
@@ -31,7 +32,10 @@ export class WhatsAppController {
 
   @UseGuards(JwtAuthGuard)
   @Post('send-template')
-  sendTemplate(@Req() request: AuthenticatedRequest, @Body() body: any) {
+  sendTemplate(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: SendTemplateOptions,
+  ) {
     this.assertCanSend(request.user);
     return this.whatsAppService.sendTemplate(
       body,
@@ -52,7 +56,7 @@ export class WhatsAppController {
   @HttpCode(200)
   @Post('webhook')
   async handleWebhook(
-    @Body() body: any,
+    @Body() body: unknown,
     @Req() request: RawBodyRequest<Request>,
     @Headers('x-hub-signature-256') signature?: string,
   ) {

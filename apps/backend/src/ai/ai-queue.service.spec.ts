@@ -2,104 +2,153 @@ import { Logger } from '@nestjs/common';
 import { AiQueueService } from './ai-queue.service';
 import { AiConversationProcessor } from './ai-conversation.processor';
 import { AiGuidanceService } from './ai-guidance.service';
+import { AiJobStore } from './ai-job.store';
 import { ConversationsService } from '../conversations/conversations.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { ConversationAiMode } from '../conversations/entities/conversation.entity';
+import { DeliveryUncertainError } from '../whatsapp/whatsapp-dispatch.service';
 
-describe('AiQueueService follow-ups', () => {
+describe('Persistent AI queue', () => {
   const conversations = {
+    findOne: jest.fn(),
     findDueFollowUps: jest.fn(),
     markFollowUpSent: jest.fn(),
+    setMode: jest.fn(),
   };
   const whatsapp = { sendConfiguredFollowUp: jest.fn() };
   const guidance = { isPaused: jest.fn() };
+  const jobs = {
+    claim: jest.fn(),
+    finish: jest.fn(),
+    fail: jest.fn(),
+    renew: jest.fn(),
+    needsDeliveryReview: jest.fn(),
+  };
+  const processor = { process: jest.fn() };
+  const job = {
+    id: 'job',
+    conversationId: 'conversation',
+    inboundMessageId: 'inbound',
+    leaseToken: 'lease',
+    attempts: 1,
+  };
   let service: AiQueueService;
-  let originalPhones: string | undefined;
-  const due = (id: string) => ({
-    id,
-    aiMode: ConversationAiMode.AUTO,
-    optInAt: new Date(),
-    contact: { phone: '000000000' },
-  });
-  const processFollowUps = () =>
+  const env = { ...process.env };
+  const consume = () =>
+    (service as unknown as { consume(): Promise<void> }).consume();
+  const followUps = () =>
     (
       service as unknown as { processFollowUps(): Promise<void> }
     ).processFollowUps();
 
   beforeEach(() => {
     jest.resetAllMocks();
-    originalPhones = process.env.AI_WHATSAPP_TEST_PHONES;
-    delete process.env.AI_WHATSAPP_TEST_PHONES;
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    process.env.AI_WHATSAPP_ENABLED = 'true';
+    process.env.AI_RELIABLE_DELIVERY_ENABLED = 'true';
+    process.env.AI_WHATSAPP_TEST_PHONES = '*';
     guidance.isPaused.mockResolvedValue(false);
-    conversations.findDueFollowUps.mockResolvedValue([
-      due('first'),
-      due('second'),
-    ]);
-    whatsapp.sendConfiguredFollowUp.mockResolvedValue(true);
+    jobs.claim.mockResolvedValue(job);
+    jobs.needsDeliveryReview.mockResolvedValue(false);
+    conversations.findOne.mockResolvedValue({
+      contact: { phone: '000000001' },
+    });
     service = new AiQueueService(
-      {} as AiConversationProcessor,
+      processor as unknown as AiConversationProcessor,
       conversations as unknown as ConversationsService,
       whatsapp as unknown as WhatsAppService,
       guidance as unknown as AiGuidanceService,
+      jobs as unknown as AiJobStore,
     );
   });
-
   afterEach(() => {
-    if (originalPhones === undefined)
-      delete process.env.AI_WHATSAPP_TEST_PHONES;
-    else process.env.AI_WHATSAPP_TEST_PHONES = originalPhones;
+    process.env = { ...env };
     jest.restoreAllMocks();
   });
 
-  it('contains a provider failure and continues without marking the failed send', async () => {
-    whatsapp.sendConfiguredFollowUp.mockRejectedValueOnce(
+  it('requires explicit activation and an audience', () => {
+    delete process.env.AI_RELIABLE_DELIVERY_ENABLED;
+    expect(service.acceptsPhone('000000001')).toBe(false);
+    process.env.AI_RELIABLE_DELIVERY_ENABLED = 'true';
+    delete process.env.AI_WHATSAPP_TEST_PHONES;
+    expect(service.acceptsPhone('000000001')).toBe(false);
+    process.env.AI_WHATSAPP_TEST_PHONES = '000000002';
+    expect(service.acceptsPhone('000000001')).toBe(false);
+    expect(service.acceptsPhone('000000002')).toBe(true);
+  });
+  it('acknowledges only after processing the specific inbound message', async () => {
+    await consume();
+    expect(processor.process).toHaveBeenCalledWith('conversation', 'inbound');
+    expect(jobs.finish).toHaveBeenCalledWith(job);
+    expect(jobs.finish.mock.invocationCallOrder[0]).toBeGreaterThan(
+      processor.process.mock.invocationCallOrder[0],
+    );
+  });
+  it('retains a generation failure for a bounded retry', async () => {
+    processor.process.mockRejectedValue(new Error('provider unavailable'));
+    await consume();
+    expect(jobs.fail).toHaveBeenCalledWith(job, false);
+    expect(jobs.finish).not.toHaveBeenCalled();
+  });
+  it('hands off after the last attempt', async () => {
+    jobs.claim.mockResolvedValue({ ...job, attempts: 3 });
+    processor.process.mockRejectedValue(new Error('provider unavailable'));
+    await consume();
+    expect(conversations.setMode).toHaveBeenCalledWith(
+      'conversation',
+      'human',
+      expect.any(String),
+    );
+    expect(jobs.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ attempts: 3 }),
+      true,
+    );
+  });
+  it('never retries an uncertain external send', async () => {
+    processor.process.mockRejectedValue(new DeliveryUncertainError());
+    await consume();
+    expect(jobs.fail).toHaveBeenCalledWith(job, true);
+    expect(conversations.setMode).toHaveBeenCalledWith(
+      'conversation',
+      'human',
+      expect.stringContaining('incierto'),
+    );
+  });
+  it('detects a send left by a crashed worker before invoking the model again', async () => {
+    jobs.needsDeliveryReview.mockResolvedValue(true);
+    await consume();
+    expect(processor.process).not.toHaveBeenCalled();
+    expect(jobs.fail).toHaveBeenCalledWith(job, true);
+  });
+  it('does not claim work during a global pause', async () => {
+    guidance.isPaused.mockResolvedValue(true);
+    await consume();
+    expect(jobs.claim).not.toHaveBeenCalled();
+  });
+  it('stops failed follow-ups instead of trying again every minute', async () => {
+    conversations.findDueFollowUps.mockResolvedValue([
+      {
+        id: 'due',
+        aiMode: 'auto',
+        optInAt: new Date(),
+        contact: { phone: '000000001' },
+      },
+    ]);
+    whatsapp.sendConfiguredFollowUp.mockRejectedValue(
       new Error('template unavailable'),
     );
-    await expect(processFollowUps()).resolves.toBeUndefined();
-    expect(whatsapp.sendConfiguredFollowUp).toHaveBeenCalledTimes(2);
-    expect(conversations.markFollowUpSent).toHaveBeenCalledTimes(1);
-    expect(conversations.markFollowUpSent).toHaveBeenCalledWith('second');
-  });
-
-  it('contains database failures and allows the next scheduled pass', async () => {
-    conversations.findDueFollowUps.mockRejectedValueOnce(
-      new Error('database unavailable'),
+    await followUps();
+    expect(conversations.setMode).toHaveBeenCalledWith(
+      'due',
+      'human',
+      expect.stringContaining('plantilla'),
     );
-    await expect(processFollowUps()).resolves.toBeUndefined();
-    await processFollowUps();
-    expect(whatsapp.sendConfiguredFollowUp).toHaveBeenCalledTimes(2);
+    expect(conversations.markFollowUpSent).not.toHaveBeenCalled();
   });
-
-  it('does not send or read due conversations while globally paused', async () => {
-    guidance.isPaused.mockResolvedValue(true);
-    await processFollowUps();
-    expect(conversations.findDueFollowUps).not.toHaveBeenCalled();
-    expect(whatsapp.sendConfiguredFollowUp).not.toHaveBeenCalled();
-  });
-
-  it('stops the batch when the global pause is enabled between sends', async () => {
-    guidance.isPaused
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(false)
-      .mockResolvedValue(true);
-    await processFollowUps();
-    expect(whatsapp.sendConfiguredFollowUp).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not run overlapping batches', async () => {
-    let release!: (value: unknown[]) => void;
-    conversations.findDueFollowUps.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          release = resolve;
-        }),
-    );
-    const first = processFollowUps();
-    await Promise.resolve();
-    await processFollowUps();
-    expect(conversations.findDueFollowUps).toHaveBeenCalledTimes(1);
-    release([]);
-    await first;
+  it('keeps the lease recoverable if persisting the failure handoff fails', async () => {
+    processor.process.mockRejectedValue(new DeliveryUncertainError());
+    conversations.setMode.mockRejectedValue(new Error('database unavailable'));
+    await consume();
+    expect(jobs.fail).not.toHaveBeenCalled();
+    expect(jobs.finish).not.toHaveBeenCalled();
   });
 });

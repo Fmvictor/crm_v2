@@ -1,6 +1,7 @@
+import { insertAiJob } from '../ai/ai-job.store';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThanOrEqual, Repository } from 'typeorm';
+import { EntityManager, LessThanOrEqual, Repository } from 'typeorm';
 import { Contact, ContactStatus } from '../contacts/entities/contact.entity';
 import {
   Conversation,
@@ -34,6 +35,7 @@ export interface ConversationMessageInput {
   messageType?: string;
   metadata?: Record<string, unknown> | null;
   providerTimestamp?: Date | null;
+  queueAi?: boolean;
 }
 
 @Injectable()
@@ -103,52 +105,52 @@ export class ConversationsService {
     conversation: Conversation,
     input: ConversationMessageInput,
   ): Promise<ConversationMessage> {
-    if (input.externalMessageId) {
-      const existing = await this.messagesRepo.findOne({
-        where: { externalMessageId: input.externalMessageId },
+    return this.conversationsRepo.manager.transaction(async (manager) => {
+      const current = await manager.findOneOrFail(Conversation, {
+        where: { id: conversation.id },
+        lock: { mode: 'pessimistic_write' },
       });
-      if (existing) return existing;
-    }
-
-    let message: ConversationMessage;
-    try {
-      message = await this.messagesRepo.save(
-        this.messagesRepo.create({
-          conversationId: conversation.id,
-          externalMessageId: input.externalMessageId ?? null,
-          direction: input.direction,
-          actor: input.actor,
-          body: input.body,
-          messageType: input.messageType ?? 'text',
-          metadata: input.metadata ?? null,
-          providerTimestamp: input.providerTimestamp ?? null,
-        }),
-      );
-    } catch (error) {
+      const existing = input.externalMessageId
+        ? await manager.findOne(ConversationMessage, {
+            where: { externalMessageId: input.externalMessageId },
+          })
+        : null;
+      const message =
+        existing ??
+        (await manager.save(
+          ConversationMessage,
+          manager.create(ConversationMessage, {
+            conversationId: current.id,
+            externalMessageId: input.externalMessageId ?? null,
+            direction: input.direction,
+            actor: input.actor,
+            body: input.body,
+            messageType: input.messageType ?? 'text',
+            metadata: input.metadata ?? null,
+            providerTimestamp: input.providerTimestamp ?? null,
+          }),
+        ));
+      if (!existing) {
+        const at = input.providerTimestamp ?? new Date();
+        if (input.direction === ConversationMessageDirection.INBOUND) {
+          if (!current.lastInboundAt || at > current.lastInboundAt)
+            current.lastInboundAt = at;
+          current.followUpStep = 0;
+          if (current.aiMode === ConversationAiMode.AUTO && !current.optOutAt)
+            current.nextFollowUpAt = new Date(
+              current.lastInboundAt.getTime() + 24 * 60 * 60 * 1000,
+            );
+        } else if (!current.lastOutboundAt || at > current.lastOutboundAt)
+          current.lastOutboundAt = at;
+        await manager.save(current);
+      }
       if (
-        !input.externalMessageId ||
-        (error as { code?: string }).code !== '23505'
+        input.queueAi &&
+        input.direction === ConversationMessageDirection.INBOUND
       )
-        throw error;
-      const existing = await this.messagesRepo.findOne({
-        where: { externalMessageId: input.externalMessageId },
-      });
-      if (!existing) throw error;
-      return existing;
-    }
-
-    const now = input.providerTimestamp ?? new Date();
-    if (input.direction === ConversationMessageDirection.INBOUND) {
-      conversation.lastInboundAt = now;
-      conversation.followUpStep = 0;
-      conversation.nextFollowUpAt = new Date(
-        now.getTime() + 24 * 60 * 60 * 1000,
-      );
-    } else {
-      conversation.lastOutboundAt = now;
-    }
-    await this.conversationsRepo.save(conversation);
-    return message;
+        await insertAiJob(manager, current.id, message.id);
+      return message;
+    });
   }
 
   async canAiReply(
@@ -263,54 +265,83 @@ export class ConversationsService {
     reason: string,
     metadata?: Record<string, unknown>,
   ) {
-    const conversation = await this.findOne(id);
-    if (conversation.pipelineStage === toStage) return conversation;
-    if (
-      actor === PipelineEventActor.AI &&
-      [
-        PipelineStage.CALL_DONE,
-        PipelineStage.DEPOSIT_PAID,
-        PipelineStage.ENROLLED,
-      ].includes(toStage)
-    ) {
-      throw new Error(`La IA no puede mover una conversación a ${toStage}`);
-    }
-    const fromStage = conversation.pipelineStage;
-    conversation.pipelineStage = toStage;
-    conversation.contact.pipelineStage = toStage;
-    if (toStage === PipelineStage.ENROLLED)
-      conversation.contact.status = ContactStatus.ENROLLED;
-    else if (toStage === PipelineStage.LOST)
-      conversation.contact.status = ContactStatus.LOST;
-    else if (toStage === PipelineStage.QUALIFIED)
-      conversation.contact.status = ContactStatus.QUALIFIED;
-    else if (toStage !== PipelineStage.NEW)
-      conversation.contact.status = ContactStatus.CONTACTED;
-    await this.conversationsRepo.manager.save(conversation.contact);
-    await this.conversationsRepo.save(conversation);
-    await this.eventsRepo.save(
-      this.eventsRepo.create({
-        conversationId: id,
-        fromStage,
-        toStage,
-        actor,
-        reason,
-        metadata: metadata ?? null,
-      }),
-    );
-    return conversation;
+    return this.withConversationLock(id, async (manager) => {
+      const conversation = await manager.findOneOrFail(Conversation, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (conversation.pipelineStage === toStage) return conversation;
+      if (actor === PipelineEventActor.AI) {
+        if (
+          conversation.aiMode !== ConversationAiMode.AUTO ||
+          conversation.optOutAt
+        )
+          return conversation;
+        if (
+          [
+            PipelineStage.CALL_DONE,
+            PipelineStage.DEPOSIT_PAID,
+            PipelineStage.ENROLLED,
+          ].includes(toStage)
+        )
+          throw new Error(`La IA no puede mover una conversación a ${toStage}`);
+      }
+      const contact = await manager.findOneOrFail(Contact, {
+        where: { id: conversation.contactId },
+      });
+      const fromStage = conversation.pipelineStage;
+      conversation.pipelineStage = toStage;
+      contact.pipelineStage = toStage;
+      if (toStage === PipelineStage.ENROLLED)
+        contact.status = ContactStatus.ENROLLED;
+      else if (toStage === PipelineStage.LOST)
+        contact.status = ContactStatus.LOST;
+      else if (toStage === PipelineStage.QUALIFIED)
+        contact.status = ContactStatus.QUALIFIED;
+      else if (toStage !== PipelineStage.NEW)
+        contact.status = ContactStatus.CONTACTED;
+      await manager.save(contact);
+      await manager.save(conversation);
+      await manager.save(
+        PipelineEvent,
+        manager.create(PipelineEvent, {
+          conversationId: id,
+          fromStage,
+          toStage,
+          actor,
+          reason: reason.slice(0, 500),
+          metadata: metadata ?? null,
+        }),
+      );
+      return conversation;
+    });
   }
 
   async setMode(id: string, aiMode: ConversationAiMode, reason?: string) {
-    const conversation = await this.findOne(id);
-    conversation.aiMode = aiMode;
-    conversation.handoffReason = reason ?? null;
-    if (
-      aiMode === ConversationAiMode.PAUSED ||
-      aiMode === ConversationAiMode.HUMAN
-    )
-      conversation.nextFollowUpAt = null;
-    return this.conversationsRepo.save(conversation);
+    return this.withConversationLock(id, async (manager) => {
+      const conversation = await manager.findOneOrFail(Conversation, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      conversation.aiMode = aiMode;
+      conversation.handoffReason = reason?.slice(0, 255) ?? null;
+      if (aiMode !== ConversationAiMode.AUTO)
+        conversation.nextFollowUpAt = null;
+      return manager.save(conversation);
+    });
+  }
+
+  async withConversationLock<T>(
+    id: string,
+    action: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return this.conversationsRepo.manager.transaction(async (manager) => {
+      await manager.query(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        [id],
+      );
+      return action(manager);
+    });
   }
 
   async updateLead(
@@ -323,28 +354,47 @@ export class ConversationsService {
       summary?: string;
     },
   ) {
-    const conversation = await this.findOne(id);
-    if (fields.courseInterest)
-      conversation.contact.courseInterest = fields.courseInterest.slice(0, 200);
-    if (fields.language) conversation.language = fields.language.slice(0, 10);
-    if (fields.optIn) conversation.optInAt = new Date();
-    if (fields.optOut) {
-      conversation.optOutAt = new Date();
-      conversation.aiMode = ConversationAiMode.PAUSED;
-      conversation.nextFollowUpAt = null;
-    }
-    if (fields.summary) conversation.aiSummary = fields.summary.slice(0, 5000);
-    await this.conversationsRepo.manager.save(conversation.contact);
-    return this.conversationsRepo.save(conversation);
+    return this.withConversationLock(id, async (manager) => {
+      const conversation = await manager.findOneOrFail(Conversation, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (conversation.aiMode !== ConversationAiMode.AUTO && !fields.optOut)
+        return conversation;
+      if (fields.courseInterest)
+        await manager.update(Contact, conversation.contactId, {
+          courseInterest: fields.courseInterest.slice(0, 200),
+        });
+      if (fields.language) conversation.language = fields.language.slice(0, 10);
+      if (fields.optIn) conversation.optInAt = new Date();
+      if (fields.optOut) {
+        conversation.optOutAt = new Date();
+        conversation.aiMode = ConversationAiMode.PAUSED;
+        conversation.nextFollowUpAt = null;
+      }
+      if (fields.summary)
+        conversation.aiSummary = fields.summary.slice(0, 5000);
+      return manager.save(conversation);
+    });
   }
 
   async scheduleFollowUp(id: string, days: number) {
-    const conversation = await this.findOne(id);
-    if (!conversation.optInAt || conversation.optOutAt) return conversation;
-    conversation.nextFollowUpAt = new Date(
-      Date.now() + days * 24 * 60 * 60 * 1000,
-    );
-    return this.conversationsRepo.save(conversation);
+    return this.withConversationLock(id, async (manager) => {
+      const conversation = await manager.findOneOrFail(Conversation, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !conversation.optInAt ||
+        conversation.optOutAt ||
+        conversation.aiMode !== ConversationAiMode.AUTO
+      )
+        return conversation;
+      conversation.nextFollowUpAt = new Date(
+        Date.now() + days * 24 * 60 * 60 * 1000,
+      );
+      return manager.save(conversation);
+    });
   }
 
   async findDueFollowUps(): Promise<Conversation[]> {
@@ -361,22 +411,38 @@ export class ConversationsService {
     });
   }
 
-  async markFollowUpSent(id: string) {
-    const conversation = await this.findOne(id);
-    const nextDays = [1, 3, 7, 14];
-    const nextStep = conversation.followUpStep + 1;
-    conversation.followUpStep = nextStep;
-    conversation.nextFollowUpAt = nextDays[nextStep]
-      ? new Date(
-          Date.now() +
-            (nextDays[nextStep] - (nextDays[nextStep - 1] ?? 0)) *
-              24 *
-              60 *
-              60 *
-              1000,
-        )
-      : null;
-    return this.conversationsRepo.save(conversation);
+  async markFollowUpSent(
+    id: string,
+    expectedStep: number,
+    expectedAt: Date | null,
+  ) {
+    return this.withConversationLock(id, async (manager) => {
+      const conversation = await manager.findOneOrFail(Conversation, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        conversation.followUpStep !== expectedStep ||
+        conversation.nextFollowUpAt?.getTime() !== expectedAt?.getTime() ||
+        conversation.aiMode !== ConversationAiMode.AUTO ||
+        conversation.optOutAt
+      )
+        return conversation;
+      const nextDays = [1, 3, 7, 14];
+      const nextStep = conversation.followUpStep + 1;
+      conversation.followUpStep = nextStep;
+      conversation.nextFollowUpAt = nextDays[nextStep]
+        ? new Date(
+            Date.now() +
+              (nextDays[nextStep] - nextDays[nextStep - 1]) *
+                24 *
+                60 *
+                60 *
+                1000,
+          )
+        : null;
+      return manager.save(conversation);
+    });
   }
 
   async listKnowledge(): Promise<KnowledgeDocument[]> {

@@ -41,6 +41,7 @@ export class OpenAiService {
 
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
+      signal: AbortSignal.timeout(30_000),
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
@@ -135,10 +136,6 @@ export class OpenAiService {
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
-    const informationalQuestion =
-      /precio|coste|cuanto|tarifa|importe|fecha|plaza|curso|temario|metod|aloj|hotel|certific/.test(
-        normalizedMessage,
-      );
     const explicitHumanRequest =
       /persona|humano|alguien|agente|asesor|hablar con|llamad/.test(
         normalizedMessage,
@@ -155,26 +152,16 @@ export class OpenAiService {
           .replace(/[\u0300-\u036f]/g, ''),
       );
 
-    if (humanOnlyRequest) {
+    if (humanOnlyRequest || explicitHumanRequest || contextUnavailable) {
       return {
         ...decision,
         handoff: true,
-        handoffReason: 'Gestión que requiere atención humana',
+        handoffReason: contextUnavailable
+          ? 'Información comercial no verificable'
+          : 'Gestión que requiere atención humana',
       };
     }
 
-    // El modelo puede ser conservador y devolver handoff=true aunque tenga
-    // una fuente válida. Para información comercial verificable, el backend
-    // obliga a continuar la conversación automática.
-    if (
-      decision.handoff &&
-      informationalQuestion &&
-      !explicitHumanRequest &&
-      !humanOnlyRequest &&
-      !contextUnavailable
-    ) {
-      return { ...decision, handoff: false, handoffReason: null };
-    }
     return decision;
   }
 }

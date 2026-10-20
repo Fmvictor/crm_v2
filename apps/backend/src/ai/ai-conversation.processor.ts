@@ -1,6 +1,9 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConversationsService } from '../conversations/conversations.service';
-import { ConversationAiMode } from '../conversations/entities/conversation.entity';
+import {
+  ConversationAiMode,
+  ConversationStatus,
+} from '../conversations/entities/conversation.entity';
 import {
   ConversationMessageActor,
   ConversationMessageDirection,
@@ -9,6 +12,7 @@ import { PipelineEventActor } from '../conversations/entities/pipeline-event.ent
 import { PipelineStage } from '../pipeline/pipeline-stage.enum';
 import { OpenAiService } from './openai.service';
 import { WebKnowledgeService } from './web-knowledge.service';
+import { DeliveryRejectedError } from '../whatsapp/whatsapp-dispatch.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { AiGuidanceService } from './ai-guidance.service';
 
@@ -37,12 +41,15 @@ export class AiConversationProcessor {
     private readonly whatsAppService: WhatsAppService,
   ) {}
 
-  async process(conversationId: string): Promise<void> {
+  async process(
+    conversationId: string,
+    expectedInboundId?: string,
+  ): Promise<void> {
     const conversation =
       await this.conversationsService.findOne(conversationId);
     if (
       conversation.aiMode !== ConversationAiMode.AUTO ||
-      conversation.status !== 'open' ||
+      conversation.status !== ConversationStatus.OPEN ||
       conversation.optOutAt
     )
       return;
@@ -55,7 +62,18 @@ export class AiConversationProcessor {
       .find(
         (message) => message.direction === ConversationMessageDirection.INBOUND,
       );
-    if (!lastInbound) return;
+    if (
+      !lastInbound ||
+      (expectedInboundId && lastInbound.id !== expectedInboundId)
+    )
+      return;
+    if (
+      !(await this.conversationsService.canAiReply(
+        conversationId,
+        lastInbound.id,
+      ))
+    )
+      return;
 
     if (
       /\b(baja|cancelar|no\s+(?:me\s+)?escribas|no quiero recibir)\b/i.test(
@@ -73,6 +91,19 @@ export class AiConversationProcessor {
     }
 
     if (await this.guidanceService.isPaused()) return;
+    if (
+      /\b(persona|humano|hablar con alguien|human|agent|speak to someone)\b/i.test(
+        lastInbound.body,
+      )
+    ) {
+      await this.handoff(
+        conversationId,
+        conversation,
+        lastInbound.id,
+        'Solicita una persona',
+      );
+      return;
+    }
     const [webContext, instructions, examples] = await Promise.all([
       this.webKnowledgeService.getContext(lastInbound.body),
       this.guidanceService.getLatestInstruction(),
@@ -101,6 +132,7 @@ export class AiConversationProcessor {
       courseInterest: decision.courseInterest ?? undefined,
       language: decision.language ?? undefined,
       optIn: decision.optIn,
+      optOut: decision.optOut,
       summary: decision.summary ?? undefined,
     });
 
@@ -123,35 +155,87 @@ export class AiConversationProcessor {
       );
     }
 
-    // Una derivación cierra el turno de la IA. No enviamos el texto del modelo
-    // porque puede terminar con una pregunta y dejar al lead esperando una
-    // respuesta automática cuando la conversación ya está en manos humanas.
-    const reply = decision.handoff
-      ? 'Te paso con alguien del equipo para que te ayude lo antes posible.'
-      : decision.reply?.trim() || '';
-    if (reply && conversation.aiMode === ConversationAiMode.AUTO) {
+    if (decision.optOut) {
+      await this.notifyHumanAttention(
+        conversation,
+        'El lead ha solicitado la baja.',
+      );
+      return;
+    }
+    if (decision.handoff) {
+      await this.handoff(
+        conversationId,
+        conversation,
+        lastInbound.id,
+        decision.handoffReason ?? 'Derivación solicitada por IA',
+      );
+      return;
+    }
+    const reply = decision.reply?.trim();
+    if (!reply) {
+      await this.handoff(
+        conversationId,
+        conversation,
+        lastInbound.id,
+        'La IA no devolvió una respuesta útil.',
+      );
+      return;
+    }
+    if (reply)
       await this.whatsAppService.sendText(
         conversation.externalContactKey,
         reply,
         ConversationMessageActor.AI,
+        undefined,
+        {
+          key: `reply:${lastInbound.id}`,
+          conversationId,
+          inboundMessageId: lastInbound.id,
+          policy: 'reply',
+        },
       );
-    }
-    if (decision.handoff) {
-      const handoffReason =
-        decision.handoffReason ?? 'Derivación solicitada por IA';
-      await this.conversationsService.setMode(
-        conversationId,
-        ConversationAiMode.HUMAN,
-        handoffReason,
-      );
-      await this.notifyHumanAttention(conversation, handoffReason);
-    }
     if (decision.followUpDays && decision.optIn) {
       await this.conversationsService.scheduleFollowUp(
         conversationId,
         decision.followUpDays,
       );
     }
+  }
+
+  private async handoff(
+    conversationId: string,
+    conversation: {
+      externalContactKey: string;
+      contact?: { name?: string | null };
+    },
+    inboundMessageId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.conversationsService.setMode(
+      conversationId,
+      ConversationAiMode.HUMAN,
+      reason,
+    );
+    try {
+      await this.whatsAppService.sendText(
+        conversation.externalContactKey,
+        'Te paso con alguien del equipo para que te ayude lo antes posible.',
+        ConversationMessageActor.AI,
+        undefined,
+        {
+          key: `handoff:${inboundMessageId}`,
+          conversationId,
+          inboundMessageId,
+          policy: 'handoff',
+          handoffReason: reason,
+        },
+      );
+    } catch {
+      this.logger.error(
+        'Aviso al lead fallido; se conserva la derivación humana.',
+      );
+    }
+    await this.notifyHumanAttention(conversation, reason);
   }
 
   private async notifyHumanAttention(
@@ -189,10 +273,8 @@ export class AiConversationProcessor {
           );
           return;
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          this.logger.warn(
-            `No se pudo enviar la plantilla de aviso; se intenta texto: ${detail}`,
-          );
+          if (!(error instanceof DeliveryRejectedError)) throw error;
+          this.logger.warn('Plantilla de aviso rechazada; se intenta texto.');
         }
       }
       await this.whatsAppService.sendText(
@@ -200,9 +282,10 @@ export class AiConversationProcessor {
         `⚠️ Un lead requiere atención humana.\nLead: ${leadName} (…${lastFourDigits})\nMotivo: ${safeReason}\nAbre el Pipeline de WhatsApp en el CRM.`,
         ConversationMessageActor.SYSTEM,
       );
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      this.logger.error(`No se pudo avisar al equipo: ${detail}`);
+    } catch {
+      this.logger.error(
+        'No se pudo confirmar el aviso al equipo; revisar la derivación en el CRM.',
+      );
     }
   }
 
