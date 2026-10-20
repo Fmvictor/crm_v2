@@ -53,5 +53,33 @@ export function humanRequest(text: string): boolean {
 }
 
 export function handoffNotice(language: HandoffLanguage): string {
-  return handoffNotices[language];
+  const name = process.env.HUMAN_ATTENTION_AGENT_NAME?.trim()
+    .replace(/[\r\n]/g, ' ')
+    .slice(0, 80);
+  const start = process.env.HUMAN_ATTENTION_START;
+  const end = process.env.HUMAN_ATTENTION_END;
+  // Sólo se anuncian calendarios configurados y validados, sin prometer plazos.
+  const knownCalendar =
+    process.env.HUMAN_ATTENTION_DAYS === '1,2,3,4,5' &&
+    process.env.HUMAN_ATTENTION_TIMEZONE === 'Europe/Madrid';
+  const validTime = (value?: string): value is string =>
+    !!value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+  if (
+    !name ||
+    !knownCalendar ||
+    !validTime(start) ||
+    !validTime(end) ||
+    start >= end
+  )
+    return handoffNotices[language];
+  const schedule = {
+    es: `${name} atiende de lunes a viernes, de ${start} a ${end}, hora de Madrid.`,
+    en: `${name}'s support hours are Monday to Friday, ${start}–${end}, Madrid time.`,
+    fr: `${name} vous répond du lundi au vendredi, de ${start} à ${end}, heure de Madrid.`,
+    ca: `${name} atén de dilluns a divendres, de ${start} a ${end}, hora de Madrid.`,
+    de: `${name} ist montags bis freitags von ${start} bis ${end} Uhr (Ortszeit Madrid) erreichbar.`,
+    it: `${name} è disponibile dal lunedì al venerdì, dalle ${start} alle ${end}, ora di Madrid.`,
+    pt: `${name} atende de segunda a sexta-feira, das ${start} às ${end}, horário de Madrid.`,
+  };
+  return `${handoffNotices[language]} ${schedule[language]}`;
 }

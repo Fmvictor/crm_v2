@@ -96,6 +96,24 @@ export class Conversation {
   @Column({ type: 'varchar', length: 255, nullable: true })
   handoffReason: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  attentionPending: boolean;
+
+  @Column({ type: 'int', default: 0 })
+  attentionVersion: number;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  attentionReason: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  attentionRequestedAt: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  attentionAcknowledgedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  attentionAcknowledgedBy: string | null;
+
   @Column({ type: 'text', nullable: true })
   aiSummary: string | null;
 

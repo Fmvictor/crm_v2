@@ -10,12 +10,21 @@ interface MetaMessage {
   button?: { text?: string };
 }
 
+export interface MetaStatus {
+  id: string;
+  recipient_id: string;
+  status: string;
+  timestamp: string;
+  errors?: { code: number }[];
+}
+
 interface MetaWebhook {
   entry: Array<{
     changes: Array<{
       value?: {
         metadata?: { display_phone_number?: string; phone_number_id?: string };
         messages?: MetaMessage[];
+        statuses?: MetaStatus[];
       };
     }>;
   }>;
@@ -57,9 +66,50 @@ export function parseMetaWebhook(input: unknown): MetaWebhook {
         )
           return invalid();
       }
-      if (value.messages === undefined) continue;
-      if (!Array.isArray(value.messages)) return invalid();
-      for (const message of value.messages) {
+      if (value.statuses !== undefined) {
+        if (!Array.isArray(value.statuses)) return invalid();
+        if (
+          process.env.WHATSAPP_PHONE_NUMBER_ID &&
+          (!record(value.metadata) ||
+            value.metadata.phone_number_id !==
+              process.env.WHATSAPP_PHONE_NUMBER_ID)
+        )
+          return invalid();
+        for (const status of value.statuses) {
+          if (
+            !record(status) ||
+            typeof status.id !== 'string' ||
+            !status.id ||
+            status.id.length > 160 ||
+            typeof status.recipient_id !== 'string' ||
+            !/^\d{7,15}$/.test(status.recipient_id) ||
+            typeof status.status !== 'string' ||
+            !status.status ||
+            status.status.length > 40 ||
+            typeof status.timestamp !== 'string' ||
+            !/^\d{1,12}$/.test(status.timestamp) ||
+            !Number.isFinite(
+              new Date(Number(status.timestamp) * 1000).getTime(),
+            )
+          )
+            return invalid();
+          if (
+            status.errors !== undefined &&
+            (!Array.isArray(status.errors) ||
+              status.errors.some(
+                (error: unknown) =>
+                  !record(error) ||
+                  !Number.isSafeInteger(error.code) ||
+                  Number(error.code) < 0 ||
+                  Number(error.code) > 2147483647,
+              ))
+          )
+            return invalid();
+        }
+      }
+      if (value.messages !== undefined && !Array.isArray(value.messages))
+        return invalid();
+      for (const message of value.messages ?? []) {
         if (
           !record(message) ||
           typeof message.id !== 'string' ||

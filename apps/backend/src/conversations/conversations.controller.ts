@@ -42,6 +42,7 @@ export class ConversationsController {
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @Query('attention') attention?: string,
   ) {
     return this.conversationsService.findAll({
       stage,
@@ -51,6 +52,7 @@ export class ConversationsController {
       search,
       page: Number(page) || 1,
       limit: Number(limit) || 50,
+      attention: attention === 'pending',
     });
   }
 
@@ -96,6 +98,20 @@ export class ConversationsController {
       body.stage,
       PipelineEventActor.AGENT,
       body.reason ?? 'Cambio manual desde el CRM',
+    );
+  }
+
+  @Post(':id/attention/acknowledge')
+  acknowledgeAttention(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+    @Body() body: { version?: number } | null,
+  ) {
+    this.assertCanEdit(request.user);
+    return this.conversationsService.acknowledgeAttention(
+      id,
+      body?.version,
+      request.user.id,
     );
   }
 

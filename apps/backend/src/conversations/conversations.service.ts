@@ -1,5 +1,11 @@
 import { insertAiJob } from '../ai/ai-job.store';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
+import { openAttention } from './attention-store';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, LessThanOrEqual, Repository } from 'typeorm';
 import { Contact, ContactStatus } from '../contacts/entities/contact.entity';
@@ -188,15 +194,20 @@ export class ConversationsService {
     search?: string;
     page?: number;
     limit?: number;
+    attention?: boolean;
   }) {
     const page = Math.max(1, options.page ?? 1);
     const limit = Math.min(100, Math.max(1, options.limit ?? 50));
     const qb = this.conversationsRepo
       .createQueryBuilder('conversation')
       .leftJoinAndSelect('conversation.contact', 'contact')
-      .where('conversation.status = :status', {
-        status: ConversationStatus.OPEN,
-      });
+      .where(
+        '(conversation.status = :status OR conversation.attentionPending = true)',
+        {
+          status: ConversationStatus.OPEN,
+        },
+      );
+    if (options.attention) qb.andWhere('conversation.attentionPending = true');
     if (options.stage)
       qb.andWhere('conversation.pipelineStage = :stage', {
         stage: options.stage,
@@ -217,7 +228,8 @@ export class ConversationsService {
         { search: `%${options.search}%` },
       );
     }
-    qb.orderBy('conversation.updatedAt', 'DESC')
+    qb.orderBy('conversation.attentionPending', 'DESC')
+      .addOrderBy('conversation.updatedAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
     const [data, total] = await qb.getManyAndCount();
@@ -317,16 +329,64 @@ export class ConversationsService {
     });
   }
 
-  async setMode(id: string, aiMode: ConversationAiMode, reason?: string) {
+  async setMode(
+    id: string,
+    aiMode: ConversationAiMode,
+    reason?: string,
+    attentionKey?: string,
+  ) {
     return this.withConversationLock(id, async (manager) => {
       const conversation = await manager.findOneOrFail(Conversation, {
         where: { id },
         lock: { mode: 'pessimistic_write' },
       });
+      if (aiMode === ConversationAiMode.AUTO && conversation.attentionPending)
+        throw new ConflictException(
+          'Marca la atención pendiente como atendida antes de reactivar la IA.',
+        );
+      if (aiMode === ConversationAiMode.HUMAN && attentionKey) {
+        await openAttention(
+          manager,
+          id,
+          attentionKey,
+          reason ?? 'Requiere atención humana',
+        );
+        return manager.findOneOrFail(Conversation, { where: { id } });
+      }
       conversation.aiMode = aiMode;
       conversation.handoffReason = reason?.slice(0, 255) ?? null;
       if (aiMode !== ConversationAiMode.AUTO)
         conversation.nextFollowUpAt = null;
+      return manager.save(conversation);
+    });
+  }
+
+  async acknowledgeAttention(id: string, version: unknown, userId: string) {
+    if (
+      typeof version !== 'number' ||
+      !Number.isSafeInteger(version) ||
+      version < 0
+    )
+      throw new BadRequestException('Versión de atención inválida.');
+    return this.withConversationLock(id, async (manager) => {
+      const conversation = await manager.findOneOrFail(Conversation, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (conversation.attentionVersion !== version)
+        throw new ConflictException(
+          'Hay una atención más reciente. Actualiza la conversación antes de marcarla atendida.',
+        );
+      if (!conversation.attentionPending) return conversation;
+      const now = new Date();
+      await manager.query(
+        `UPDATE conversation_attention_events SET "resolvedAt"=$2,"resolvedBy"=$3 WHERE "conversationId"=$1 AND "resolvedAt" IS NULL`,
+        [id, now, userId],
+      );
+      conversation.attentionPending = false;
+      conversation.attentionAcknowledgedAt = now;
+      conversation.attentionAcknowledgedBy = userId;
+      // Atender no concede permiso al bot ni programa mensajes.
       return manager.save(conversation);
     });
   }

@@ -235,6 +235,7 @@ export class AiConversationProcessor {
       conversationId,
       ConversationAiMode.HUMAN,
       reason,
+      `handoff:${inboundMessageId}`,
     );
     try {
       await this.whatsAppService.sendText(

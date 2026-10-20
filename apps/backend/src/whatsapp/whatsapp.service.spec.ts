@@ -1,3 +1,4 @@
+import { WhatsAppStatusService } from './whatsapp-status.service';
 import { Logger } from '@nestjs/common';
 import { WhatsAppService, AutomaticDelivery } from './whatsapp.service';
 import {
@@ -64,6 +65,7 @@ describe('WhatsApp delivery controls', () => {
       {} as AiQueueService,
       guidance as unknown as AiGuidanceService,
       dispatches as unknown as WhatsAppDispatchService,
+      { record: jest.fn() } as unknown as WhatsAppStatusService,
     );
   });
   afterEach(() => {
