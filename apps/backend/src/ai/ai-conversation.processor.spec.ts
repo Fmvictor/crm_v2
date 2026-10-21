@@ -1,3 +1,4 @@
+import { testConfiguration } from '../bot-config/test-configuration';
 import { AiBudgetBlockedError } from './ai-usage.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { OpenAiService } from './openai.service';
@@ -23,6 +24,7 @@ function createProcessor(
     knowledge as WebKnowledgeService,
     guidance as AiGuidanceService,
     whatsapp as WhatsAppService,
+    testConfiguration(),
   );
 }
 const alertFor = (processor: AiConversationProcessor) =>
@@ -214,7 +216,9 @@ describe('AiConversationProcessor', () => {
 
     expect(whatsAppService.sendText).toHaveBeenCalledWith(
       '34600000000',
-      'Te paso con alguien del equipo para que te ayude lo antes posible.',
+      expect.stringContaining(
+        'Víctor atiende lunes, martes, miércoles, jueves, viernes, de 08:00 a 20:00',
+      ),
       'ai',
       undefined,
       expect.objectContaining({ key: 'handoff:inbound-id', policy: 'handoff' }),

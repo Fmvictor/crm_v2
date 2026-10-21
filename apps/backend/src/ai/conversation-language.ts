@@ -1,4 +1,5 @@
-const handoffNotices = {
+import type { BotRules } from '../bot-config/config-schema';
+export const handoffNotices = {
   es: 'Te paso con alguien del equipo para que te ayude lo antes posible.',
   en: "I'll connect you with someone from our team so they can help you as soon as possible.",
   fr: 'Je vous mets en relation avec une personne de notre équipe pour vous aider dès que possible.',
@@ -52,7 +53,39 @@ export function humanRequest(text: string): boolean {
   );
 }
 
-export function handoffNotice(language: HandoffLanguage): string {
+export function handoffNotice(
+  language: HandoffLanguage,
+  rules?: BotRules,
+): string {
+  if (rules) {
+    const locale = {
+      es: 'es-ES',
+      en: 'en-GB',
+      fr: 'fr-FR',
+      ca: 'ca-ES',
+      de: 'de-DE',
+      it: 'it-IT',
+      pt: 'pt-PT',
+    }[language];
+    const days = rules.supportDays
+      .map((day) =>
+        new Intl.DateTimeFormat(locale, {
+          weekday: 'long',
+          timeZone: 'UTC',
+        }).format(new Date(Date.UTC(2024, 0, day))),
+      )
+      .join(', ');
+    const labels = {
+      es: `${rules.supportName} atiende ${days}, de ${rules.supportStart} a ${rules.supportEnd}, hora de Madrid.`,
+      en: `${rules.supportName}: ${days}, ${rules.supportStart}–${rules.supportEnd}, Madrid time.`,
+      fr: `${rules.supportName} : ${days}, ${rules.supportStart}–${rules.supportEnd}, heure de Madrid.`,
+      ca: `${rules.supportName}: ${days}, ${rules.supportStart}–${rules.supportEnd}, hora de Madrid.`,
+      de: `${rules.supportName}: ${days}, ${rules.supportStart}–${rules.supportEnd}, Ortszeit Madrid.`,
+      it: `${rules.supportName}: ${days}, ${rules.supportStart}–${rules.supportEnd}, ora di Madrid.`,
+      pt: `${rules.supportName}: ${days}, ${rules.supportStart}–${rules.supportEnd}, horário de Madrid.`,
+    };
+    return `${rules.handoffMessages[language]} ${labels[language]}`;
+  }
   const name = process.env.HUMAN_ATTENTION_AGENT_NAME?.trim()
     .replace(/[\r\n]/g, ' ')
     .slice(0, 80);

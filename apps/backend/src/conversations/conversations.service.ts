@@ -42,6 +42,7 @@ export interface ConversationMessageInput {
   metadata?: Record<string, unknown> | null;
   providerTimestamp?: Date | null;
   queueAi?: boolean;
+  followUpDays?: number | null;
 }
 
 @Injectable()
@@ -110,8 +111,9 @@ export class ConversationsService {
   async recordMessage(
     conversation: Conversation,
     input: ConversationMessageInput,
+    existingManager?: EntityManager,
   ): Promise<ConversationMessage> {
-    return this.conversationsRepo.manager.transaction(async (manager) => {
+    const write = async (manager: EntityManager) => {
       const current = await manager.findOneOrFail(Conversation, {
         where: { id: conversation.id },
         lock: { mode: 'pessimistic_write' },
@@ -143,9 +145,13 @@ export class ConversationsService {
             current.lastInboundAt = at;
           current.followUpStep = 0;
           if (current.aiMode === ConversationAiMode.AUTO && !current.optOutAt)
-            current.nextFollowUpAt = new Date(
-              current.lastInboundAt.getTime() + 24 * 60 * 60 * 1000,
-            );
+            current.nextFollowUpAt =
+              input.followUpDays === null
+                ? null
+                : new Date(
+                    current.lastInboundAt.getTime() +
+                      (input.followUpDays ?? 1) * 24 * 60 * 60 * 1000,
+                  );
         } else if (!current.lastOutboundAt || at > current.lastOutboundAt)
           current.lastOutboundAt = at;
         await manager.save(current);
@@ -156,7 +162,10 @@ export class ConversationsService {
       )
         await insertAiJob(manager, current.id, message.id);
       return message;
-    });
+    };
+    return existingManager
+      ? write(existingManager)
+      : this.conversationsRepo.manager.transaction(write);
   }
 
   async canAiReply(
@@ -475,6 +484,7 @@ export class ConversationsService {
     id: string,
     expectedStep: number,
     expectedAt: Date | null,
+    schedule: number[] = [1, 3, 7, 14],
   ) {
     return this.withConversationLock(id, async (manager) => {
       const conversation = await manager.findOneOrFail(Conversation, {
@@ -488,7 +498,7 @@ export class ConversationsService {
         conversation.optOutAt
       )
         return conversation;
-      const nextDays = [1, 3, 7, 14];
+      const nextDays = schedule;
       const nextStep = conversation.followUpStep + 1;
       conversation.followUpStep = nextStep;
       conversation.nextFollowUpAt = nextDays[nextStep]

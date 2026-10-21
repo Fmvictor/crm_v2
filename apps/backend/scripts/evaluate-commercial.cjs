@@ -40,6 +40,7 @@ if (
 const reservations = new Map();
 let evaluationCharged = 0;
 const accounting = {
+  annotateConfiguration: () => Promise.resolve(),
   assertAvailable: async () => {
     if (evaluationCharged >= evaluationLimit * 1e6)
       throw Error('Presupuesto de evaluación agotado');
@@ -208,6 +209,7 @@ global.fetch = async (url, options) => {
           });
         },
       },
+      require('../dist/bot-config/test-configuration').testConfiguration(),
     );
     try {
       await processor.process(test.id, messages.at(-1).id);

@@ -1,17 +1,19 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { GraduationCap, Kanban, LogOut, Menu, X } from 'lucide-react';
+import { GraduationCap, Kanban, Bot, LogOut, Menu, X } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 
 const nav = [
   { href: '/pipeline', label: 'Pipeline WhatsApp', icon: Kanban },
+  { href: '/assistant', label: 'Asistente', icon: Bot },
 ];
 
 export function Sidebar() {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -22,12 +24,13 @@ export function Sidebar() {
 
   const navigation = (onNavigate?: () => void) => (
     <nav className="flex-1 space-y-1 px-3 py-4" aria-label="Navegación principal">
-      {nav.map(({ href, label, icon: Icon }) => (
+      {nav.filter(item => item.href !== '/assistant' || user?.role === 'admin').map(({ href, label, icon: Icon }) => (
         <Link
           key={href}
           href={href}
           onClick={onNavigate}
-          className="flex items-center gap-3 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700"
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${pathname === href ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+          aria-current={pathname === href ? 'page' : undefined}
         >
           <Icon className="h-4 w-4 shrink-0" />
           {label}

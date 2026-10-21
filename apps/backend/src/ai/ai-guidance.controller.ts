@@ -7,12 +7,14 @@ import {
   Req,
   UseGuards,
   ForbiddenException,
+  ConflictException,
   Query,
   Param,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User, UserRole } from '../users/entities/user.entity';
+import { BotConfigService } from '../bot-config/bot-config.service';
 import { AiGuidanceService } from './ai-guidance.service';
 import { BotLearningStatus } from './entities/bot-learning.entity';
 
@@ -21,12 +23,23 @@ type AuthenticatedRequest = Request & { user: User };
 @Controller('ai-guidance')
 @UseGuards(JwtAuthGuard)
 export class AiGuidanceController {
-  constructor(private readonly guidanceService: AiGuidanceService) {}
+  constructor(
+    private readonly guidanceService: AiGuidanceService,
+    private readonly configuration: BotConfigService,
+  ) {}
 
   @Get()
-  getConfiguration(@Req() request: AuthenticatedRequest) {
+  async getConfiguration(@Req() request: AuthenticatedRequest) {
     this.assertAdmin(request.user);
-    return this.guidanceService.getConfiguration();
+    const [snapshot, paused] = await Promise.all([
+      this.configuration.active(),
+      this.guidanceService.isPaused(),
+    ]);
+    return {
+      instruction: snapshot.configuration.assistant,
+      version: snapshot.version,
+      paused,
+    };
   }
 
   @Get('learnings')
@@ -39,12 +52,11 @@ export class AiGuidanceController {
   }
 
   @Post('instructions')
-  async replaceInstruction(
-    @Req() request: AuthenticatedRequest,
-    @Body() body: { text: string },
-  ) {
+  replaceInstruction(@Req() request: AuthenticatedRequest) {
     this.assertAdmin(request.user);
-    return this.guidanceService.replaceInstruction(body.text, request.user.id);
+    throw new ConflictException(
+      'Gestiona las instrucciones en Asistente, mediante borrador y publicación.',
+    );
   }
 
   @Patch('learnings/:id')

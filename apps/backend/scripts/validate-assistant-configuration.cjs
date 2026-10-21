@@ -1,0 +1,110 @@
+// Exclusivamente PostgreSQL aislado y datos sintéticos. No toca el CRM de producción.
+const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
+const url = new URL(process.env.DATABASE_URL || 'postgresql://invalid/invalid');
+assert.equal(url.hostname, 'emeb-validation-postgres');
+assert.equal(url.pathname, '/emeb_validation');
+const db = require('../dist/database/data-source').default;
+const { BotConfigService } = require('../dist/bot-config/bot-config.service');
+const { defaultConfiguration } = require('../dist/bot-config/config-schema');
+const { ConversationsService } = require('../dist/conversations/conversations.service');
+const { AiConversationProcessor } = require('../dist/ai/ai-conversation.processor');
+const { Contact } = require('../dist/contacts/entities/contact.entity');
+const { Conversation } = require('../dist/conversations/entities/conversation.entity');
+const { ConversationMessage } = require('../dist/conversations/entities/conversation-message.entity');
+const { PipelineEvent } = require('../dist/conversations/entities/pipeline-event.entity');
+const { KnowledgeDocument } = require('../dist/knowledge/entities/knowledge-document.entity');
+const { User } = require('../dist/users/entities/user.entity');
+global.fetch = () => Promise.reject(new Error('External transport forbidden'));
+
+(async () => {
+  await db.initialize();
+  assert.ok((await db.query('SHOW server_version'))[0].server_version.startsWith('16.'));
+  const service = new BotConfigService(db);
+  const conversations = new ConversationsService(db.getRepository(Conversation), db.getRepository(ConversationMessage), db.getRepository(PipelineEvent), db.getRepository(KnowledgeDocument));
+  const user = await db.getRepository(User).save({ name: 'Operador de pruebas', email: `${randomUUID()}@example.invalid`, password: 'not-for-login', role: 'admin', isActive: true });
+  const passed = [];
+  let current = await service.overview();
+  const writes = await Promise.allSettled(['A', 'B'].map(text => service.save({ ...current.state.draft, assistant: `# Asistente ${text}` }, current.state.draftRevision, user.id)));
+  assert.equal(writes.filter(r => r.status === 'fulfilled').length, 1);
+  assert.equal(writes.find(r => r.status === 'rejected').reason.getStatus(), 409);
+  passed.push('concurrent draft edits retain one winner and reject stale revision with 409');
+  current = await service.overview();
+  await service.validate(current.state.draftRevision);
+  const publishes = await Promise.allSettled([1, 2].map(() => service.publish(current.state.draftRevision, current.active.version, user.id)));
+  assert.equal(publishes.filter(r => r.status === 'fulfilled').length, 1);
+  assert.equal(publishes.find(r => r.status === 'rejected').reason.getStatus(), 409);
+  passed.push('two concurrent publications cannot replace the same active version');
+
+  current = await service.overview();
+  const prepared = await service.save({ ...current.state.draft, assistant: '# Siguiente publicación' }, current.state.draftRevision, user.id);
+  await service.validate(prepared.state.draftRevision);
+  let enter, release;
+  const entered = new Promise(resolve => { enter = resolve; });
+  const waiting = new Promise(resolve => { release = resolve; });
+  const sending = service.withActiveGuard(current.active.version, async () => { enter(); await waiting; return 'synthetic-sent'; });
+  await entered;
+  let published = false;
+  const publishing = service.publish(prepared.state.draftRevision, prepared.active.version, user.id).then(() => { published = true; });
+  await db.query('SELECT pg_sleep(0.1)');
+  assert.equal(published, false);
+  release();
+  assert.equal(await sending, 'synthetic-sent');
+  await publishing;
+  passed.push('publication waits for a previously authorized delivery under the shared PostgreSQL lock');
+  let staleSends = 0;
+  await assert.rejects(service.withActiveGuard(current.active.version, () => { staleSends++; return Promise.resolve(); }), error => error.constructor.name === 'DeliveryBlockedError');
+  assert.equal(staleSends, 0);
+  passed.push('stale version is blocked before calling the delivery transport');
+
+  const contact = await db.getRepository(Contact).save({ name: 'Lead sintético de configuración', phone: '000000002' });
+  const conversation = await conversations.findOrCreate(contact, randomUUID());
+  const message = await conversations.recordMessage(conversation, { direction: 'inbound', actor: 'lead', body: '¿Qué incluye el curso sintético?' });
+  let modelEnter, modelRelease, sends = 0;
+  const modelEntered = new Promise(resolve => { modelEnter = resolve; });
+  const modelResult = new Promise(resolve => { modelRelease = resolve; });
+  const processor = new AiConversationProcessor(conversations, { decide: () => { modelEnter(); return modelResult; } }, { getContext: () => Promise.resolve('Fuente sintética autorizada.') }, { isPaused: () => Promise.resolve(false) }, { sendText: () => { sends++; return Promise.resolve(); } }, service);
+  const processing = processor.process(conversation.id, message.id);
+  await modelEntered;
+  current = await service.overview();
+  const saved = await service.save({ ...current.state.draft, assistant: '# Publicación mientras se genera' }, current.state.draftRevision, user.id);
+  await service.validate(saved.state.draftRevision);
+  await service.publish(saved.state.draftRevision, saved.active.version, user.id);
+  modelRelease({ reply: 'Respuesta de una versión antigua.', handoff: false, optIn: false, optOut: false });
+  await processing;
+  assert.equal(sends, 0);
+  assert.equal((await conversations.findOne(conversation.id)).aiMode, 'human');
+  passed.push('configuration change while the model generates suppresses the stale reply and requests human review');
+
+  await Promise.all(Array.from({ length: 24 }, () => service.withActiveGuard(undefined, async manager => {
+    const snap = await service.active(manager);
+    return conversations.recordMessage(await manager.findOneByOrFail(Conversation, { id: conversation.id }), { direction: 'inbound', actor: 'lead', body: 'Recepción sintética paralela', followUpDays: snap.configuration.rules.followUpsEnabled ? snap.configuration.rules.followUpDays[0] : null }, manager);
+  })));
+  passed.push('24 concurrent inbound records reuse their guarded transaction without exhausting the connection pool');
+  current = await service.overview();
+  const old = current.history.at(-1);
+  const restored = await service.restore(old.version, current.state.draftRevision, user.id);
+  assert.equal(restored.active.version, current.active.version);
+  await service.validate(restored.state.draftRevision);
+  await service.publish(restored.state.draftRevision, restored.active.version, user.id);
+  assert.equal((await service.active()).restoredFrom, old.version);
+  passed.push('restoring a published version retains its origin and creates a new immutable version');
+
+  await db.query(`UPDATE conversations SET "aiMode"='auto',"optInAt"=now(),"followUpStep"=0,"nextFollowUpAt"=now() WHERE id=$1`, [conversation.id]);
+  const due = await conversations.findOne(conversation.id);
+  const next = await conversations.markFollowUpSent(due.id, 0, due.nextFollowUpAt, [3, 7]);
+  assert.ok(Math.abs(next.nextFollowUpAt.getTime() - Date.now() - 4 * 86400000) < 5000);
+  passed.push('follow-up progression uses the published schedule instead of fixed days');
+
+  const noWeb = { version: 0, configuration: { ...defaultConfiguration(), rules: { ...defaultConfiguration().rules, webEnabled: false }, documents: [] } };
+  const missing = await service.documentContext(noWeb, 'Precio', global.fetch);
+  assert.match(missing.context, /No hay conocimiento autorizado/);
+  assert.equal(missing.sources.length, 0);
+  passed.push('empty authorized knowledge fails closed without external web access');
+  await db.destroy();
+  console.log(JSON.stringify({ tests: passed.length, passed }, null, 2));
+})().catch(async error => {
+  console.error(JSON.stringify({ validationFailed: true, code: error.code || error.name, detail: error.message }));
+  if (db.isInitialized) await db.destroy().catch(() => undefined);
+  process.exitCode = 1;
+});

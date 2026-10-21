@@ -1,3 +1,5 @@
+import { BotConfigService } from '../bot-config/bot-config.service';
+import { topicHandoff, BotSnapshot } from '../bot-config/config-schema';
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConversationsService } from '../conversations/conversations.service';
 import {
@@ -46,6 +48,7 @@ export class AiConversationProcessor {
     private readonly guidanceService: AiGuidanceService,
     @Inject(forwardRef(() => WhatsAppService))
     private readonly whatsAppService: WhatsAppService,
+    private readonly configuration: BotConfigService,
   ) {}
 
   async process(
@@ -98,37 +101,46 @@ export class AiConversationProcessor {
     }
 
     if (await this.guidanceService.isPaused()) return;
-    if (humanRequest(lastInbound.body)) {
+    const snapshot = await this.configuration.active();
+    const rules = snapshot.configuration.rules;
+    if (
+      humanRequest(lastInbound.body) ||
+      topicHandoff(lastInbound.body, rules)
+    ) {
       await this.handoff(
         conversationId,
         conversation,
         lastInbound.id,
-        'Solicita una persona',
+        humanRequest(lastInbound.body)
+          ? 'Solicita una persona'
+          : 'Requiere atención según las reglas publicadas',
         conversationLanguage(lastInbound.body, conversation.language),
+        snapshot,
       );
       return;
     }
-    const [webContext, instructions, examples] = await Promise.all([
-      this.webKnowledgeService.getContext(lastInbound.body, {
-        previousMessages: messages
-          .slice(0, messages.indexOf(lastInbound))
-          .map((message) => ({
-            direction: message.direction,
-            body: message.body,
-          })),
-        courseInterest: conversation.contact?.courseInterest,
-      }),
-      this.guidanceService.getLatestInstruction(),
-      this.guidanceService.getApprovedExamples(),
-    ]);
+    const knowledge = await this.configuration.documentContext(
+      snapshot,
+      lastInbound.body,
+      () =>
+        this.webKnowledgeService.getContext(lastInbound.body, {
+          previousMessages: messages
+            .slice(0, messages.indexOf(lastInbound))
+            .map((message) => ({
+              direction: message.direction,
+              body: message.body,
+            })),
+          courseInterest: conversation.contact?.courseInterest,
+        }),
+    );
     let decision: Awaited<ReturnType<OpenAiService['decide']>>;
     try {
       decision = await this.openAiService.decide({
         conversationId,
         currentStage: conversation.pipelineStage,
-        webContext,
-        instructions,
-        examples,
+        webContext: knowledge.context,
+        configuration: snapshot,
+        sources: knowledge.sources,
         messages: messages.map((message) => ({
           direction: message.direction,
           body: message.body,
@@ -141,6 +153,15 @@ export class AiConversationProcessor {
         ConversationAiMode.HUMAN,
         error.reason,
         `budget:${lastInbound.id}`,
+      );
+      return;
+    }
+    if (!(await this.configuration.isCurrent(snapshot.version))) {
+      await this.conversationsService.setMode(
+        conversationId,
+        ConversationAiMode.HUMAN,
+        'La configuración cambió durante la respuesta; revisar sin reenviar.',
+        `configuration:${lastInbound.id}`,
       );
       return;
     }
@@ -197,6 +218,7 @@ export class AiConversationProcessor {
           lastInbound.body,
           decision.language ?? conversation.language,
         ),
+        snapshot,
       );
       return;
     }
@@ -211,6 +233,7 @@ export class AiConversationProcessor {
           lastInbound.body,
           decision.language ?? conversation.language,
         ),
+        snapshot,
       );
       return;
     }
@@ -225,12 +248,14 @@ export class AiConversationProcessor {
           conversationId,
           inboundMessageId: lastInbound.id,
           policy: 'reply',
+          configVersion: snapshot.version,
+          sources: knowledge.sources,
         },
       );
-    if (decision.followUpDays && decision.optIn) {
+    if (decision.followUpDays && decision.optIn && rules.followUpsEnabled) {
       await this.conversationsService.scheduleFollowUp(
         conversationId,
-        decision.followUpDays,
+        rules.followUpDays[0],
       );
     }
   }
@@ -244,6 +269,7 @@ export class AiConversationProcessor {
     inboundMessageId: string,
     reason: string,
     language: HandoffLanguage,
+    snapshot: BotSnapshot,
   ): Promise<void> {
     await this.conversationsService.setMode(
       conversationId,
@@ -254,7 +280,7 @@ export class AiConversationProcessor {
     try {
       await this.whatsAppService.sendText(
         conversation.externalContactKey,
-        handoffNotice(language),
+        handoffNotice(language, snapshot.configuration.rules),
         ConversationMessageActor.AI,
         undefined,
         {
@@ -262,6 +288,7 @@ export class AiConversationProcessor {
           conversationId,
           inboundMessageId,
           policy: 'handoff',
+          configVersion: snapshot.version,
           handoffReason: reason,
         },
       );

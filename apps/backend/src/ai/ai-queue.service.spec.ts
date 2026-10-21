@@ -1,3 +1,4 @@
+import { testConfiguration } from '../bot-config/test-configuration';
 import { Logger } from '@nestjs/common';
 import { AiQueueService } from './ai-queue.service';
 import { AiConversationProcessor } from './ai-conversation.processor';
@@ -59,6 +60,7 @@ describe('Persistent AI queue', () => {
       whatsapp as unknown as WhatsAppService,
       guidance as unknown as AiGuidanceService,
       jobs as unknown as AiJobStore,
+      testConfiguration(),
     );
   });
   afterEach(() => {

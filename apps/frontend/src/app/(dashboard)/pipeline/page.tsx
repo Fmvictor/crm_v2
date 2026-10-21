@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, MessageCircle, Pause, Play, Send, UserRound } from 'lucide-react';
@@ -76,7 +77,6 @@ function PipelineColumn({
 
 function AiGuidancePanel() {
   const qc = useQueryClient();
-  const [instructionDraft, setInstructionDraft] = useState<string | null>(null);
   const { data: configuration } = useQuery({
     refetchInterval: 15_000,
     queryKey: ['ai-guidance'],
@@ -91,18 +91,10 @@ function AiGuidancePanel() {
     queryFn: () => api.get<AiUsageSummary>('/ai-usage').then(response => response.data),
     refetchInterval: 15_000,
   });
-  const instruction = instructionDraft ?? configuration?.instruction ?? '';
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['ai-guidance'] });
     qc.invalidateQueries({ queryKey: ['ai-learnings'] });
   };
-  const saveInstruction = useMutation({
-    mutationFn: () => api.post('/ai-guidance/instructions', { text: instruction }),
-    onSuccess: () => {
-      setInstructionDraft(null);
-      refresh();
-    },
-  });
   const setPaused = useMutation({
     mutationFn: (paused: boolean) => api.post('/ai-guidance/paused', { paused }),
     onSuccess: refresh,
@@ -117,7 +109,7 @@ function AiGuidancePanel() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-gray-900">Configuración de la IA</h2>
-          <p className="mt-1 text-xs text-gray-500">Los datos de cursos se verifican siempre en emeb.es. Las respuestas manuales requieren aprobación antes de usarse como ejemplo.</p>
+          <p className="mt-1 text-xs text-gray-500">El bot utiliza el conocimiento publicado en Asistente. Revisa las respuestas manuales antes de incorporarlas a un borrador.</p>
         </div>
         <button
           onClick={() => setPaused.mutate(!configuration?.paused)}
@@ -129,10 +121,7 @@ function AiGuidancePanel() {
       </div>
       {setPaused.isError && <p role="alert" className="mt-2 text-xs text-red-700">No se pudo cambiar la pausa. Revisa el consumo y actualiza antes de reintentar.</p>}
       <AiUsagePanel />
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <textarea value={instruction} onChange={(event) => setInstructionDraft(event.target.value)} placeholder="Instrucciones para el asistente…" className="min-h-28 w-full flex-1 rounded-lg border px-3 py-2 text-sm text-black placeholder:text-gray-500" />
-        <button onClick={() => saveInstruction.mutate()} disabled={!instruction.trim() || saveInstruction.isPending} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50 sm:self-end">Guardar</button>
-      </div>
+      <Link href="/assistant" className="mt-4 inline-flex rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700">Gestionar instrucciones, documentos y reglas</Link>
       {learnings.length > 0 && (
         <div className="mt-4 border-t pt-3">
           <h3 className="text-xs font-semibold text-gray-700">Respuestas manuales pendientes de revisar</h3>
@@ -241,7 +230,7 @@ export default function PipelinePage() {
             <button disabled={!canEdit || updateMode.isPending} onClick={() => updateMode.mutate('human')} className="flex items-center justify-center gap-1 rounded-lg border border-orange-200 px-2 py-2 text-sm text-orange-700 hover:bg-orange-50 sm:text-xs sm:py-1.5"><UserRound className="h-3 w-3" />Tomar conversación</button>
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-3 sm:p-5">
-            {(selected.messages ?? []).map((message) => <div key={message.id} className={cn('flex', message.direction === 'outbound' ? 'justify-end' : 'justify-start')}><div className={cn('max-w-[90%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[85%]', message.direction === 'outbound' ? 'rounded-tr-sm bg-green-100 text-green-950' : 'rounded-tl-sm bg-white text-gray-800')}><p className="whitespace-pre-wrap break-words">{message.body}</p><p className="mt-1 text-[10px] opacity-50">{message.actor} · {formatDate(message.createdAt)}</p><p className="mt-1 text-[10px]"><DeliveryStatus message={message} /></p></div></div>)}
+            {(selected.messages ?? []).map((message) => <div key={message.id} className={cn('flex', message.direction === 'outbound' ? 'justify-end' : 'justify-start')}><div className={cn('max-w-[90%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[85%]', message.direction === 'outbound' ? 'rounded-tr-sm bg-green-100 text-green-950' : 'rounded-tl-sm bg-white text-gray-800')}><p className="whitespace-pre-wrap break-words">{message.body}</p><p className="mt-1 text-[10px] opacity-50">{message.actor} · {formatDate(message.createdAt)}</p><p className="mt-1 text-[10px]"><DeliveryStatus message={message} /></p>{message.metadata?.configurationVersion && <details className="mt-2 text-xs"><summary className="cursor-pointer">Asistente · versión {message.metadata.configurationVersion}</summary><p className="mt-1">Fuentes: {message.metadata.sources?.map(source => source.name).join(', ') || 'Reglas de la versión publicada'}</p></details>}</div></div>)}
             {(selected.pipelineEvents ?? []).map((event) => <div key={event.id} className="text-[11px] text-center text-gray-400">{event.actor} movió la conversación a {stages.find((stage) => stage.id === event.toStage)?.label ?? event.toStage}{event.reason ? ` · ${event.reason}` : ''}</div>)}
           </div>
           <form onSubmit={(event) => { event.preventDefault(); if (canEdit && text.trim()) send.mutate(text.trim()); }} className="flex gap-2 border-t p-3 sm:p-4"><input disabled={!canEdit} value={text} onChange={(e) => setText(e.target.value)} placeholder="Enviar mensaje manual..." className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" /><button aria-label="Enviar mensaje" disabled={!canEdit || !text.trim() || send.isPending} className="rounded-xl bg-blue-600 px-3 text-white disabled:opacity-40"><Send className="h-4 w-4" /></button></form>

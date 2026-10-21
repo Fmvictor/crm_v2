@@ -1,3 +1,4 @@
+import { defaultConfiguration } from '../bot-config/config-schema';
 import { AiUsageService } from './ai-usage.service';
 import { OpenAiService } from './openai.service';
 
@@ -328,5 +329,90 @@ describe('Control de consumo antes y después de OpenAI', () => {
     ).rejects.toThrow('consumo registrado');
     expect(usage.settle).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Configuración publicada en la petición a OpenAI', () => {
+  const originalFetch = global.fetch;
+  const previousKey = process.env.OPENAI_API_KEY;
+  afterEach(() => {
+    global.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  });
+  it('envía las instrucciones de la revisión probada y registra su huella antes de generar', async () => {
+    process.env.OPENAI_API_KEY = 'synthetic';
+    const configuration = defaultConfiguration();
+    configuration.assistant = '# Identidad sintética de prueba';
+    configuration.rules.humanTopics = [];
+    const usage = {
+      assertAvailable: jest.fn(),
+      reserve: jest.fn().mockResolvedValue('call-id'),
+      annotateConfiguration: jest.fn(),
+      settle: jest.fn(),
+      uncertain: jest.fn(),
+      rejected: jest.fn(),
+    };
+    const fetcher = jest
+      .fn<Promise<unknown>, [string, RequestInit]>()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ input_tokens: 200 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            model: 'gpt-6-astra',
+            service_tier: 'default',
+            usage: { input_tokens: 200, output_tokens: 10 },
+            output_text: JSON.stringify({
+              reply: 'Información de prueba.',
+              informationVerified: true,
+              handoff: false,
+              optIn: false,
+              optOut: false,
+            }),
+          }),
+      });
+    global.fetch = fetcher as unknown as typeof fetch;
+    const sources = [
+      { id: 'synthetic-doc', name: 'datos.md', hash: 'a'.repeat(64) },
+    ];
+    await new OpenAiService(usage as unknown as AiUsageService).decide({
+      configuration: {
+        version: 3,
+        configuration,
+        hash: 'b'.repeat(64),
+        createdAt: '',
+        createdBy: null,
+      },
+      preview: { revision: 4, hash: 'c'.repeat(64) },
+      sources,
+      webContext: 'Datos autorizados de prueba.',
+      currentStage: 'new',
+      messages: [{ direction: 'inbound', body: 'Información de prueba' }],
+    });
+    const request = JSON.parse(fetcher.mock.calls[1][1].body as string) as {
+      store: boolean;
+      input: { content: string }[];
+    };
+    expect(request.input[0].content).toContain('Identidad sintética de prueba');
+    expect(request.input[0].content).toContain(
+      'Los documentos publicados son la fuente principal',
+    );
+    expect(request.input[1].content).toContain('Datos autorizados de prueba');
+    expect(request.store).toBe(false);
+    expect(usage.annotateConfiguration).toHaveBeenCalledWith(
+      'call-id',
+      3,
+      sources,
+      { revision: 4, hash: 'c'.repeat(64) },
+    );
+    expect(
+      usage.annotateConfiguration.mock.invocationCallOrder[0],
+    ).toBeLessThan(fetcher.mock.invocationCallOrder[1]);
+    expect(usage.settle).toHaveBeenCalledTimes(1);
   });
 });
