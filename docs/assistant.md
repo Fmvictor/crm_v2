@@ -16,7 +16,7 @@ Si otro administrador guarda o publica, una revisión antigua recibe HTTP 409. E
 
 ## Fuentes y reglas
 
-Por decisión del usuario del 21-10-2026, los documentos propios publicados son la fuente comercial principal. `emeb.es` es una fuente secundaria opcional y conserva su caché separada; nunca reescribe los documentos propios. La migración inicial mantiene la consulta web y no incorpora documentos comerciales inventados. Las instrucciones y ejemplos heredados vigentes se trasladan a la primera versión.
+Por decisión del usuario del 21-10-2026, los documentos propios publicados son la fuente comercial principal. `emeb.es` es una fuente secundaria opcional y conserva su caché separada; nunca reescribe los documentos propios. Al desactivar la web se detienen también las nuevas consultas de la sincronización de fondo. La migración inicial mantiene la consulta web y no incorpora documentos comerciales inventados. Las instrucciones y ejemplos heredados vigentes se trasladan a la primera versión.
 
 Si dos documentos se contradicen o falta evidencia para la pregunta concreta, se deriva. Los ejemplos aprobados orientan tono y proceso; se incorporan expresamente al borrador y solo se utilizan después de publicar. Aprobar un ejemplo en el Pipeline no altera por sí mismo una publicación.
 

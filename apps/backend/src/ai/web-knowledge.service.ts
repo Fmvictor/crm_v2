@@ -3,7 +3,9 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
+import { BotConfigService } from '../bot-config/bot-config.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { Repository } from 'typeorm';
@@ -69,6 +71,7 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(KnowledgeDocument)
     private readonly knowledgeRepo: Repository<KnowledgeDocument>,
+    @Optional() private readonly configuration?: BotConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -228,10 +231,23 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async webAllowed(): Promise<boolean> {
+    if (!this.configuration) return true;
+    try {
+      return (await this.configuration.active()).configuration.rules.webEnabled;
+    } catch {
+      this.logger.warn(
+        'Consulta web omitida: configuración publicada no disponible.',
+      );
+      return false;
+    }
+  }
+
   private async syncDueDocuments(): Promise<void> {
     // La web pública puede responder 503 si recibe muchas fichas a la vez.
     // La sincronización es de fondo, por lo que priorizamos fiabilidad.
     for (const page of this.pages) {
+      if (!(await this.webAllowed())) return;
       const document = await this.getLocalDocument(page.path);
       if (!document || this.isDue(document)) await this.syncPage(page.path);
     }
@@ -242,6 +258,7 @@ export class WebKnowledgeService implements OnModuleInit, OnModuleDestroy {
     if (!definition) return null;
 
     try {
+      if (!(await this.webAllowed())) return null;
       const response = await fetch(`https://www.emeb.es${definition.path}`, {
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       });
