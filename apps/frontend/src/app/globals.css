@@ -18,3 +18,19 @@ body {
   font-family: Arial, Helvetica, sans-serif;
   overflow-x: hidden;
 }
+
+.markdown-content h1, .markdown-content h2, .markdown-content h3 {
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 1em 0 .5em;
+}
+.markdown-content h1 { font-size: 1.35rem; }
+.markdown-content h2 { font-size: 1.15rem; }
+.markdown-content h3 { font-size: 1rem; }
+.markdown-content p, .markdown-content ul, .markdown-content ol { margin: .6em 0; }
+.markdown-content ul { list-style: disc; padding-left: 1.5em; }
+.markdown-content ol { list-style: decimal; padding-left: 1.5em; }
+.markdown-content a { color: #1d4ed8; text-decoration: underline; overflow-wrap: anywhere; }
+.markdown-content pre { overflow: auto; background: #e5e7eb; padding: .75em; border-radius: .5em; }
+.markdown-content blockquote { border-left: 3px solid #93c5fd; padding-left: 1em; color: #4b5563; }
+.markdown-content > :first-child { margin-top: 0; }

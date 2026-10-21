@@ -1,3 +1,4 @@
+import { testConfiguration } from '../bot-config/test-configuration';
 import { WhatsAppStatusService } from './whatsapp-status.service';
 import { Logger } from '@nestjs/common';
 import { WhatsAppService, AutomaticDelivery } from './whatsapp.service';
@@ -66,6 +67,7 @@ describe('WhatsApp delivery controls', () => {
       guidance as unknown as AiGuidanceService,
       dispatches as unknown as WhatsAppDispatchService,
       { record: jest.fn() } as unknown as WhatsAppStatusService,
+      testConfiguration(),
     );
   });
   afterEach(() => {

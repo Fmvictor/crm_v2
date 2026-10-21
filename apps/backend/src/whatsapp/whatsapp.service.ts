@@ -1,3 +1,5 @@
+import { BotConfigService } from '../bot-config/bot-config.service';
+import type { BotSnapshot } from '../bot-config/config-schema';
 import { parseMetaWebhook } from './meta-webhook';
 import { randomUUID } from 'node:crypto';
 import {
@@ -37,6 +39,8 @@ import { WhatsAppStatusService } from './whatsapp-status.service';
 
 export interface AutomaticDelivery {
   key: string;
+  configVersion?: number;
+  sources?: { id: string; name: string; hash: string }[];
   conversationId: string;
   inboundMessageId?: string;
   policy: 'reply' | 'handoff' | 'followup';
@@ -69,6 +73,7 @@ export class WhatsAppService {
     private readonly guidanceService: AiGuidanceService,
     private readonly dispatches: WhatsAppDispatchService,
     private readonly statuses: WhatsAppStatusService,
+    private readonly configuration: BotConfigService,
   ) {}
 
   async sendTemplate(
@@ -78,17 +83,22 @@ export class WhatsAppService {
     automatic?: AutomaticDelivery,
   ): Promise<void> {
     if (automatic) {
-      return this.conversationsService.withConversationLock(
-        automatic.conversationId,
-        async () => {
-          await this.assertAutomaticDelivery(automatic);
-          return this.sendTemplateRecorded(
-            options,
-            actor,
-            createdById,
-            automatic.key,
-          );
-        },
+      return this.configuration.withActiveGuard(
+        automatic.configVersion,
+        async () =>
+          this.conversationsService.withConversationLock(
+            automatic.conversationId,
+            async () => {
+              await this.assertAutomaticDelivery(automatic);
+              return this.sendTemplateRecorded(
+                options,
+                actor,
+                createdById,
+                automatic.key,
+                automatic,
+              );
+            },
+          ),
       );
     }
     return this.sendTemplateRecorded(options, actor, createdById, randomUUID());
@@ -99,6 +109,7 @@ export class WhatsAppService {
     actor: ConversationMessageActor,
     createdById: string | undefined,
     dispatchKey: string,
+    trace?: AutomaticDelivery,
   ): Promise<void> {
     const { to, templateName, languageCode = 'es', params = [] } = options;
 
@@ -166,6 +177,12 @@ export class WhatsAppService {
           actor,
           body: `[Plantilla WhatsApp: ${templateName}]`,
           messageType: 'template',
+          metadata: trace?.configVersion
+            ? {
+                configurationVersion: trace.configVersion,
+                sources: trace.sources ?? [],
+              }
+            : undefined,
         });
         await this.interactionsService.createSystemInteraction({
           contactId: contact.id,
@@ -193,18 +210,23 @@ export class WhatsAppService {
     automatic?: AutomaticDelivery,
   ): Promise<void> {
     if (automatic) {
-      return this.conversationsService.withConversationLock(
-        automatic.conversationId,
-        async () => {
-          await this.assertAutomaticDelivery(automatic);
-          return this.sendTextRecorded(
-            to,
-            text,
-            actor,
-            createdById,
-            automatic.key,
-          );
-        },
+      return this.configuration.withActiveGuard(
+        automatic.configVersion,
+        async () =>
+          this.conversationsService.withConversationLock(
+            automatic.conversationId,
+            async () => {
+              await this.assertAutomaticDelivery(automatic);
+              return this.sendTextRecorded(
+                to,
+                text,
+                actor,
+                createdById,
+                automatic.key,
+                automatic,
+              );
+            },
+          ),
       );
     }
     return this.sendTextRecorded(to, text, actor, createdById, randomUUID());
@@ -216,6 +238,7 @@ export class WhatsAppService {
     actor: ConversationMessageActor,
     createdById: string | undefined,
     dispatchKey: string,
+    trace?: AutomaticDelivery,
   ): Promise<void> {
     const apiUrl =
       process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v25.0';
@@ -267,6 +290,12 @@ export class WhatsAppService {
           actor,
           body: text,
           messageType: 'text',
+          metadata: trace?.configVersion
+            ? {
+                configurationVersion: trace.configVersion,
+                sources: trace.sources ?? [],
+              }
+            : undefined,
         });
         const interaction =
           await this.interactionsService.createSystemInteraction({
@@ -500,23 +529,41 @@ export class WhatsAppService {
                 contact,
                 targetPhone,
               );
-              await this.conversationsService.recordMessage(conversation, {
-                externalMessageId: msg.id ?? null,
-                direction,
-                actor: isOutbound
-                  ? ConversationMessageActor.SYSTEM
-                  : ConversationMessageActor.LEAD,
-                body: text,
-                messageType: msg.type ?? 'text',
-                metadata: { provider: 'meta', messageType: msg.type ?? 'text' },
-                queueAi:
-                  !isOutbound &&
-                  this.aiQueueService.acceptsPhone(targetPhone) &&
-                  !(await this.guidanceService.isPaused()),
-                providerTimestamp: msg.timestamp
-                  ? new Date(Number(msg.timestamp) * 1000)
-                  : null,
-              });
+              const queueAi =
+                !isOutbound &&
+                this.aiQueueService.acceptsPhone(targetPhone) &&
+                !(await this.guidanceService.isPaused());
+              await this.configuration.withActiveGuard(
+                undefined,
+                async (manager) => {
+                  const botRules = (await this.configuration.active(manager))
+                    .configuration.rules;
+                  await this.conversationsService.recordMessage(
+                    conversation,
+                    {
+                      followUpDays: botRules.followUpsEnabled
+                        ? botRules.followUpDays[0]
+                        : null,
+                      externalMessageId: msg.id ?? null,
+                      direction,
+                      actor: isOutbound
+                        ? ConversationMessageActor.SYSTEM
+                        : ConversationMessageActor.LEAD,
+                      body: text,
+                      messageType: msg.type ?? 'text',
+                      metadata: {
+                        provider: 'meta',
+                        messageType: msg.type ?? 'text',
+                      },
+                      queueAi,
+                      providerTimestamp: msg.timestamp
+                        ? new Date(Number(msg.timestamp) * 1000)
+                        : null,
+                    },
+                    manager,
+                  );
+                },
+              );
               this.logger.log(`Guardando interacción WA ${msg.id ?? 'sin-id'}`);
               await this.interactionsService.createSystemInteraction({
                 contactId: contact.id,
@@ -551,10 +598,18 @@ export class WhatsAppService {
     }
   }
 
-  async sendConfiguredFollowUp(conversation: Conversation): Promise<boolean> {
+  async sendConfiguredFollowUp(
+    conversation: Conversation,
+    captured?: BotSnapshot,
+  ): Promise<boolean> {
+    const snapshot = captured ?? (await this.configuration.active());
+    if (!snapshot.configuration.rules.followUpsEnabled)
+      throw new DeliveryBlockedError();
     const step = conversation.followUpStep + 1;
     const templateName =
-      process.env[`WHATSAPP_FOLLOWUP_TEMPLATE_D${[1, 3, 7, 14][step - 1]}`];
+      process.env[
+        `WHATSAPP_FOLLOWUP_TEMPLATE_D${snapshot.configuration.rules.followUpDays[step - 1]}`
+      ];
     if (!templateName || !conversation.externalContactKey) return false;
     const approved = (await this.getTemplates()).filter(
       (template) =>
@@ -578,6 +633,7 @@ export class WhatsAppService {
         key: `followup:${conversation.id}:${conversation.followUpStep}:${conversation.nextFollowUpAt?.toISOString()}`,
         conversationId: conversation.id,
         policy: 'followup',
+        configVersion: snapshot.version,
         followUpStep: conversation.followUpStep,
         dueAt: conversation.nextFollowUpAt?.toISOString(),
       },

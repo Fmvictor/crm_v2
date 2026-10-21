@@ -37,6 +37,7 @@ export interface ConversationMessage {
   body: string;
   messageType: string;
   createdAt: string;
+  metadata?: { configurationVersion?: number; sources?: { id: string; name: string; hash: string }[] } | null;
   deliveryStatus?: 'sent' | 'delivered' | 'read' | 'failed' | null;
   deliveryUpdatedAt?: string | null;
   deliveryErrorCode?: number | null;

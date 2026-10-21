@@ -1,3 +1,4 @@
+import { BotPreviewController } from './bot-preview.controller';
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConversationsModule } from '../conversations/conversations.module';
@@ -29,7 +30,7 @@ import { Interaction } from '../interactions/entities/interaction.entity';
     ConversationsModule,
     forwardRef(() => WhatsAppModule),
   ],
-  controllers: [AiGuidanceController, AiUsageController],
+  controllers: [AiGuidanceController, AiUsageController, BotPreviewController],
   providers: [
     AiUsageService,
     OpenAiService,

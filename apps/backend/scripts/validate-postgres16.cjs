@@ -24,6 +24,7 @@ const { Contact } = require(join(dist, 'contacts/entities/contact.entity'));
 const { ConversationsService } = require(
   join(dist, 'conversations/conversations.service'),
 );
+const { BotConfigService } = require(join(dist, 'bot-config/bot-config.service'));
 const { AiJobStore } = require(join(dist, 'ai/ai-job.store'));
 const { AiQueueService } = require(join(dist, 'ai/ai-queue.service'));
 const { AiConversationProcessor } = require(
@@ -167,28 +168,28 @@ async function main() {
     'a job write failure rolls back the actual message service transaction',
   );
 
-  await clean();
-  for (let i = 0; i < 8; i++) {
-    current = await conversation();
-    for (let j = 0; j < 3; j++) await inbound(current);
+  for (let round = 0; round < 5; round++) {
+    await clean();
+    for (let i = 0; i < 8; i++) {
+      current = await conversation();
+      for (let j = 0; j < 3; j++) await inbound(current);
+    }
+    const consumers = await Promise.all([worker(), worker()]);
+    const completed = consumers.flatMap((result) => result.completed);
+    assert.equal(completed.length, 24);
+    assert.equal(new Set(completed).size, 24);
+    assert.equal(
+      Number(
+        (
+          await db.query(
+            "SELECT count(*) FROM ai_reply_jobs WHERE status='completed'",
+          )
+        )[0].count,
+      ),
+      24,
+    );
   }
-  const consumers = await Promise.all([worker(), worker()]);
-  const completed = consumers.flatMap((result) => result.completed);
-  assert.equal(completed.length, 24);
-  assert.equal(new Set(completed).size, 24);
-  assert.equal(
-    Number(
-      (
-        await db.query(
-          "SELECT count(*) FROM ai_reply_jobs WHERE status='completed'",
-        )
-      )[0].count,
-    ),
-    24,
-  );
-  passed.push(
-    'two independent Node processes complete 24 jobs without duplicate claims',
-  );
+  passed.push('two independent Node processes complete 120 jobs in five rounds without duplicate claims');
 
   await clean();
   current = await conversation();
@@ -272,6 +273,7 @@ async function main() {
     {},
     { isPaused: async () => false },
     store,
+    new BotConfigService(db),
   );
   await queue.consume();
   assert.equal(processorCalls, 0);
@@ -318,6 +320,7 @@ async function main() {
         automaticSends++;
       },
     },
+    new BotConfigService(db),
   );
   const processing = processor.process(current.id, message.id);
   await entered;

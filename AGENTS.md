@@ -18,7 +18,7 @@ crm_v2/
 - Recepción y envío de mensajes mediante WhatsApp Cloud API.
 - Pipeline, historial, etapas y control de toma humana de conversaciones.
 - Instrucciones, pausa global y aprendizaje aprobado del bot.
-- Consulta de información comercial en `emeb.es`.
+- Documentos Markdown propios publicados, con consulta secundaria opcional a `emeb.es`.
 - Avisos de atención humana a través de WhatsApp.
 
 Los contactos e interacciones se conservan solo como soporte interno del pipeline, del historial de WhatsApp y del aprendizaje. No tienen interfaz ni API de gestión general.
@@ -28,8 +28,9 @@ Los contactos e interacciones se conservan solo como soporte interno del pipelin
 - Prefijo de API: `/api/v1`.
 - Los endpoints están protegidos con `JwtAuthGuard`, salvo el inicio de sesión y el webhook de WhatsApp.
 - `synchronize: true` solo fuera de producción.
-- Las rutas de interfaz disponibles son `/login` y `/pipeline`.
-- Los datos comerciales que responda la IA se obtienen de `emeb.es`.
+- Las rutas de interfaz disponibles son `/login`, `/pipeline` y `/assistant` (administradores).
+- Desde la decisión del usuario del 21-10-2026, los documentos propios vigentes y publicados son la fuente comercial principal; `emeb.es` es secundaria y opcional. No inventes datos ni incorpores borradores como conocimiento activo.
+- Instrucciones, documentos, reglas y ejemplos se guardan en un borrador versionado y sólo cambian el bot al publicar. Consulta `docs/assistant.md`; las protecciones del programa permanecen en código.
 
 ## Variables de entorno esenciales
 

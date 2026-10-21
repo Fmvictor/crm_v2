@@ -1,3 +1,5 @@
+import { BotConfigService } from '../bot-config/bot-config.service';
+import { defaultConfiguration } from '../bot-config/config-schema';
 import { Repository } from 'typeorm';
 import {
   KnowledgeDocument,
@@ -30,6 +32,26 @@ describe('WebKnowledgeService', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+  });
+
+  it('respeta la consulta web desactivada también en la sincronización de fondo', async () => {
+    const repository = createRepository();
+    const configuration = defaultConfiguration();
+    configuration.rules.webEnabled = false;
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const service = new WebKnowledgeService(
+      repository as unknown as Repository<KnowledgeDocument>,
+      {
+        active: () => Promise.resolve({ configuration }),
+      } as unknown as BotConfigService,
+    );
+    await (
+      service as unknown as { syncDueDocuments(): Promise<void> }
+    ).syncDueDocuments();
+    await service.getContext('Precio del curso');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(repository.documents.size).toBe(0);
   });
 
   it('consulta la web en cada mensaje y conserva una copia local', async () => {

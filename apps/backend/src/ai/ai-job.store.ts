@@ -29,6 +29,12 @@ export class AiJobStore {
 
   async claim(): Promise<AiJob | undefined> {
     return this.database.transaction(async (manager) => {
+      // Serializa sólo la reserva (no el trabajo). Después del bloqueo, la siguiente
+      // sentencia ve los claims ya confirmados y evita una carrera con snapshots antiguos.
+      await manager.query(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
+        ['ai-reply-job-claim'],
+      );
       await manager.query(
         `UPDATE ai_reply_jobs SET status = 'pending', "leaseToken" = NULL,
          "lockedUntil" = NULL WHERE status = 'running' AND "lockedUntil" < now()`,

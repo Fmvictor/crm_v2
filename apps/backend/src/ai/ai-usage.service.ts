@@ -287,6 +287,24 @@ export class AiUsageService {
     );
   }
 
+  async annotateConfiguration(
+    callId: string,
+    version: number,
+    sources: { id: string; name: string; hash: string }[],
+    preview?: { revision: number; hash: string },
+  ): Promise<void> {
+    await this.database.query(
+      'INSERT INTO bot_config_usage_refs("callId","configVersion",sources,"draftRevision","draftHash") VALUES ($1,$2,$3,$4,$5)',
+      [
+        callId,
+        preview ? null : version,
+        JSON.stringify(sources),
+        preview?.revision ?? null,
+        preview?.hash ?? null,
+      ],
+    );
+  }
+
   async configure(limit: unknown, version: unknown, userId: string) {
     if (
       typeof limit !== 'number' ||

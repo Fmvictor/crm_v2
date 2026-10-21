@@ -11,6 +11,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { ConversationAiMode } from '../conversations/entities/conversation.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { AiGuidanceService } from './ai-guidance.service';
+import { BotConfigService } from '../bot-config/bot-config.service';
 import { AiJobStore } from './ai-job.store';
 import {
   DeliveryBlockedError,
@@ -36,6 +37,7 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
     private readonly whatsAppService: WhatsAppService,
     private readonly guidance: AiGuidanceService,
     private readonly jobs: AiJobStore,
+    private readonly configuration: BotConfigService,
   ) {}
 
   onModuleInit() {
@@ -135,6 +137,8 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
     this.processingFollowUps = true;
     try {
       if (await this.guidance.isPaused()) return;
+      const snapshot = await this.configuration.active();
+      if (!snapshot.configuration.rules.followUpsEnabled) return;
       for (const conversation of await this.conversationsService.findDueFollowUps()) {
         if (
           conversation.aiMode !== ConversationAiMode.AUTO ||
@@ -145,13 +149,16 @@ export class AiQueueService implements OnModuleInit, OnModuleDestroy {
         if (!this.acceptsPhone(conversation.externalContactKey)) continue;
         if (await this.guidance.isPaused()) break;
         try {
-          const sent =
-            await this.whatsAppService.sendConfiguredFollowUp(conversation);
+          const sent = await this.whatsAppService.sendConfiguredFollowUp(
+            conversation,
+            snapshot,
+          );
           if (!sent) throw new DeliveryRejectedError(0);
           await this.conversationsService.markFollowUpSent(
             conversation.id,
             conversation.followUpStep,
             conversation.nextFollowUpAt,
+            snapshot.configuration.rules.followUpDays,
           );
         } catch (error) {
           if (error instanceof DeliveryBlockedError) continue;

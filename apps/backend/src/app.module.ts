@@ -1,3 +1,4 @@
+import { BotConfigModule } from './bot-config/bot-config.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -20,6 +21,7 @@ import { AiModule } from './ai/ai.module';
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 5 }]),
     DatabaseModule,
+    BotConfigModule,
     UsersModule,
     AuthModule,
     ContactsModule,
