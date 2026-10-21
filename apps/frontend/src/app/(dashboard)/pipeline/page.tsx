@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, MessageCircle, Pause, Play, Send, UserRound } from 'lucide-react';
+import { Pause, Play, Send, UserRound } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { AiGuidanceConfiguration, AiUsageSummary, AiLearning, Conversation, ConversationAiMode, PaginatedResult, PipelineStage } from '@/types';
@@ -11,68 +11,11 @@ import { useAuthStore } from '@/store/auth.store';
 import { WhatsAppTemplateForm } from '@/components/whatsapp/WhatsAppTemplateForm';
 import { AiUsagePanel } from '@/components/ai/AiUsagePanel';
 import { DeliveryStatus } from '@/components/whatsapp/DeliveryStatus';
-
-const stages: { id: PipelineStage; label: string; color: string }[] = [
-  { id: 'new', label: 'Nuevo', color: 'border-gray-300' },
-  { id: 'contacted', label: 'Contactado', color: 'border-blue-300' },
-  { id: 'qualified', label: 'Cualificado', color: 'border-yellow-300' },
-  { id: 'call_scheduled', label: 'Llamada agendada', color: 'border-orange-300' },
-  { id: 'call_done', label: 'Llamada hecha', color: 'border-orange-400' },
-  { id: 'offer_sent', label: 'Oferta enviada', color: 'border-purple-300' },
-  { id: 'deposit_requested', label: 'Señal solicitada', color: 'border-purple-400' },
-  { id: 'deposit_paid', label: 'Señal pagada', color: 'border-green-300' },
-  { id: 'enrolled', label: 'Matriculado', color: 'border-green-500' },
-  { id: 'nurture', label: 'Nutrir', color: 'border-slate-300' },
-  { id: 'lost', label: 'Perdido', color: 'border-red-300' },
-];
+import { PipelineBoard, stages } from '@/components/pipeline/PipelineBoard';
 
 function formatDate(value?: string | null) {
   if (!value) return '';
   return new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
-}
-
-function PipelineColumn({
-  stage,
-  conversations,
-  selectedId,
-  onSelect,
-}: {
-  stage: (typeof stages)[number];
-  conversations: Conversation[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <section className="w-full md:w-64 md:shrink-0">
-      <div className={cn('flex items-center justify-between rounded-t-xl border-t-4 bg-white px-3 py-3 shadow-sm', stage.color)}>
-        <h2 className="text-sm font-semibold text-gray-800">{stage.label}</h2>
-        <span className="text-xs text-gray-400">{conversations.length}</span>
-      </div>
-      <div className="mt-2 min-h-24 space-y-2">
-        {conversations.map((conversation) => (
-          <button
-            key={conversation.id}
-            onClick={() => onSelect(conversation.id)}
-            className={cn('w-full rounded-xl border bg-white p-3 text-left shadow-sm transition-colors hover:border-blue-300', selectedId === conversation.id && 'ring-2 ring-blue-200')}
-          >
-            <div className="flex items-start gap-2">
-              <MessageCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-gray-900">{conversation.contact?.name || 'Lead sin nombre'}</p>
-                <p className="truncate text-xs text-gray-500">{conversation.contact?.courseInterest || conversation.externalContactKey}</p>
-                {conversation.attentionPending && <span className="mt-2 inline-flex rounded-md bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-900">Atención pendiente</span>}
-                <div className="mt-2 flex items-center gap-1 text-[11px] text-gray-400">
-                  <span>{conversation.aiMode === 'auto' ? 'IA activa' : conversation.aiMode === 'human' ? 'Agente' : 'Pausada'}</span>
-                  <ChevronRight className="h-3 w-3" />
-                </div>
-              </div>
-            </div>
-          </button>
-        ))}
-        {conversations.length === 0 && <p className="rounded-lg border border-dashed border-gray-200 px-3 py-5 text-center text-xs text-gray-400">Sin conversaciones</p>}
-      </div>
-    </section>
-  );
 }
 
 function AiGuidancePanel() {
@@ -148,7 +91,7 @@ export default function PipelinePage() {
   const canEdit = user?.role === 'admin' || user?.role === 'agent';
   const [onlyAttention, setOnlyAttention] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mobileStage, setMobileStage] = useState<PipelineStage>('new');
+  const stageChangePending = useRef(false);
   const [text, setText] = useState('');
   const { data, isLoading } = useQuery({
     queryKey: ['conversations', onlyAttention],
@@ -166,9 +109,36 @@ export default function PipelinePage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['conversation', selectedId] }); qc.invalidateQueries({ queryKey: ['conversations'] }); },
   });
   const updateStage = useMutation({
-    mutationFn: (stage: PipelineStage) => api.patch(`/conversations/${selectedId}/stage`, { stage }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['conversation', selectedId] }); qc.invalidateQueries({ queryKey: ['conversations'] }); },
+    mutationFn: ({ id, stage }: { id: string; stage: PipelineStage }) => api.patch(`/conversations/${id}/stage`, { stage }),
+    onSuccess: async (_, { id, stage }) => {
+      // Evita que una consulta anterior al guardado restaure la etapa antigua.
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ['conversations'] }),
+        qc.cancelQueries({ queryKey: ['conversation', id] }),
+      ]);
+      qc.setQueriesData<PaginatedResult<Conversation>>({ queryKey: ['conversations'] }, current => current && ({
+        ...current,
+        data: current.data.map(conversation => conversation.id === id ? { ...conversation, pipelineStage: stage } : conversation),
+      }));
+      qc.setQueryData<Conversation>(['conversation', id], current => current && ({ ...current, pipelineStage: stage }));
+    },
+    onSettled: async (_, _error, { id }) => {
+      try {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: ['conversation', id] }),
+          qc.invalidateQueries({ queryKey: ['conversations'] }),
+        ]);
+      } finally {
+        stageChangePending.current = false;
+      }
+    },
   });
+  function moveConversation(id: string, stage: PipelineStage) {
+    const conversation = (selected?.id === id ? selected : undefined) ?? data?.data.find(item => item.id === id);
+    if (!canEdit || stageChangePending.current || !conversation || conversation.pipelineStage === stage) return;
+    stageChangePending.current = true;
+    updateStage.mutate({ id, stage });
+  }
   const send = useMutation({
     mutationFn: (body: string) => api.post(`/conversations/${selectedId}/send`, { text: body }),
     onSuccess: () => { setText(''); qc.invalidateQueries({ queryKey: ['conversation', selectedId] }); qc.invalidateQueries({ queryKey: ['conversations'] }); },
@@ -178,7 +148,6 @@ export default function PipelinePage() {
     onSuccess: (_, variables) => { qc.invalidateQueries({ queryKey: ['conversation', variables.id] }); qc.invalidateQueries({ queryKey: ['conversations'] }); },
     onError: (_error, variables) => { qc.invalidateQueries({ queryKey: ['conversation', variables.id] }); },
   });
-  const grouped = stages.reduce<Record<string, Conversation[]>>((acc, stage) => { acc[stage.id] = (data?.data ?? []).filter((c) => c.pipelineStage === stage.id); return acc; }, {});
 
   return (
     <div className="space-y-5">
@@ -193,21 +162,20 @@ export default function PipelinePage() {
       {user?.role === 'admin' && <AiGuidancePanel />}
       <label className="flex w-fit items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={onlyAttention} onChange={(event) => setOnlyAttention(event.target.checked)} className="h-4 w-4" />Sólo pendientes de atención</label>
 
-      {isLoading ? <div className="p-12 text-center text-sm text-gray-400">Cargando conversaciones...</div> : <>
-        <div className="md:hidden">
-          <label htmlFor="pipeline-stage" className="mb-1 block text-xs font-medium text-gray-700">Etapa del pipeline</label>
-          <select id="pipeline-stage" value={mobileStage} onChange={(event) => setMobileStage(event.target.value as PipelineStage)} className="mb-3 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            {stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.label} ({grouped[stage.id]?.length ?? 0})</option>)}
-          </select>
-          {(() => {
-            const stage = stages.find((item) => item.id === mobileStage) ?? stages[0];
-            return <PipelineColumn stage={stage} conversations={grouped[stage.id] ?? []} selectedId={selectedId} onSelect={setSelectedId} />;
-          })()}
-        </div>
-        <div className="hidden gap-4 overflow-x-auto pb-4 md:flex">
-          {stages.map((stage) => <PipelineColumn key={stage.id} stage={stage} conversations={grouped[stage.id] ?? []} selectedId={selectedId} onSelect={setSelectedId} />)}
-        </div>
-      </>}
+      {updateStage.isError && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">No se pudo guardar el cambio de etapa. Comprueba la conexión y vuelve a intentarlo.</p>}
+      <p role="status" className="text-sm text-gray-600">
+        {updateStage.isPending ? 'Guardando cambio de etapa…' : updateStage.isSuccess ? `Etapa guardada: ${stages.find(stage => stage.id === updateStage.variables.stage)?.label}.` : ''}
+      </p>
+      {isLoading ? <div className="p-12 text-center text-sm text-gray-400">Cargando conversaciones...</div> : (
+        <PipelineBoard
+          conversations={data?.data ?? []}
+          selectedId={selectedId}
+          canEdit={canEdit}
+          movingId={updateStage.isPending ? updateStage.variables.id : null}
+          onSelect={setSelectedId}
+          onMove={moveConversation}
+        />
+      )}
 
       {selected && (
         <div className="fixed inset-0 z-20 flex w-full flex-col bg-white shadow-2xl sm:inset-y-0 sm:left-auto sm:right-0 sm:max-w-xl sm:border-l sm:border-gray-200">
@@ -223,12 +191,13 @@ export default function PipelinePage() {
             {acknowledge.isError && acknowledge.variables?.id === selected.id && <p role="alert" className="mt-2 text-xs text-red-700">No se pudo marcar como atendida. Comprueba la versión actualizada e inténtalo de nuevo.</p>}
           </div>}
           <div className="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row sm:flex-wrap sm:px-5">
-            <select disabled={!canEdit || updateStage.isPending} value={selected.pipelineStage} onChange={(e) => updateStage.mutate(e.target.value as PipelineStage)} className="w-full rounded-lg border px-2 py-2 text-sm sm:w-auto sm:text-xs sm:py-1.5">
+            <select aria-label="Cambiar etapa de la conversación" disabled={!canEdit || updateStage.isPending} value={selected.pipelineStage} onChange={(e) => moveConversation(selected.id, e.target.value as PipelineStage)} className="w-full rounded-lg border px-2 py-2 text-sm sm:w-auto sm:text-xs sm:py-1.5">
               {stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
             </select>
             <button disabled={updateMode.isPending || !canEdit || (selected.aiMode !== 'auto' && (user?.role !== 'admin' || selected.attentionPending))} onClick={() => updateMode.mutate(selected.aiMode === 'auto' ? 'paused' : 'auto')} className="flex items-center justify-center gap-1 rounded-lg border px-2 py-2 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 sm:text-xs sm:py-1.5">{selected.aiMode === 'auto' ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}{selected.aiMode === 'auto' ? 'Pausar IA' : 'Activar IA'}</button>
             <button disabled={!canEdit || updateMode.isPending} onClick={() => updateMode.mutate('human')} className="flex items-center justify-center gap-1 rounded-lg border border-orange-200 px-2 py-2 text-sm text-orange-700 hover:bg-orange-50 sm:text-xs sm:py-1.5"><UserRound className="h-3 w-3" />Tomar conversación</button>
           </div>
+          {updateStage.isError && updateStage.variables.id === selected.id && <p role="alert" className="px-4 py-2 text-sm text-red-700">No se pudo guardar el cambio de etapa. Vuelve a intentarlo.</p>}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gray-50 p-3 sm:p-5">
             {(selected.messages ?? []).map((message) => <div key={message.id} className={cn('flex', message.direction === 'outbound' ? 'justify-end' : 'justify-start')}><div className={cn('max-w-[90%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[85%]', message.direction === 'outbound' ? 'rounded-tr-sm bg-green-100 text-green-950' : 'rounded-tl-sm bg-white text-gray-800')}><p className="whitespace-pre-wrap break-words">{message.body}</p><p className="mt-1 text-[10px] opacity-50">{message.actor} · {formatDate(message.createdAt)}</p><p className="mt-1 text-[10px]"><DeliveryStatus message={message} /></p>{message.metadata?.configurationVersion && <details className="mt-2 text-xs"><summary className="cursor-pointer">Asistente · versión {message.metadata.configurationVersion}</summary><p className="mt-1">Fuentes: {message.metadata.sources?.map(source => source.name).join(', ') || 'Reglas de la versión publicada'}</p></details>}</div></div>)}
             {(selected.pipelineEvents ?? []).map((event) => <div key={event.id} className="text-[11px] text-center text-gray-400">{event.actor} movió la conversación a {stages.find((stage) => stage.id === event.toStage)?.label ?? event.toStage}{event.reason ? ` · ${event.reason}` : ''}</div>)}
