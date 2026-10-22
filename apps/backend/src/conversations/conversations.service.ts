@@ -118,6 +118,7 @@ export class ConversationsService {
         where: { id: conversation.id },
         lock: { mode: 'pessimistic_write' },
       });
+      const wasClosed = current.status === ConversationStatus.CLOSED;
       const existing = input.externalMessageId
         ? await manager.findOne(ConversationMessage, {
             where: { externalMessageId: input.externalMessageId },
@@ -143,6 +144,26 @@ export class ConversationsService {
         if (input.direction === ConversationMessageDirection.INBOUND) {
           if (!current.lastInboundAt || at > current.lastInboundAt)
             current.lastInboundAt = at;
+          if (current.status === ConversationStatus.CLOSED) {
+            current.status = ConversationStatus.OPEN;
+            current.aiMode = ConversationAiMode.HUMAN;
+            current.nextFollowUpAt = null;
+            await manager.save(
+              PipelineEvent,
+              manager.create(PipelineEvent, {
+                conversationId: current.id,
+                fromStage: current.pipelineStage,
+                toStage: current.pipelineStage,
+                actor: PipelineEventActor.SYSTEM,
+                reason:
+                  'Conversación reabierta por un nuevo mensaje; requiere atención humana',
+                metadata: {
+                  action: 'conversation_reopened',
+                  trigger: 'inbound',
+                },
+              }),
+            );
+          }
           current.followUpStep = 0;
           if (current.aiMode === ConversationAiMode.AUTO && !current.optOutAt)
             current.nextFollowUpAt =
@@ -154,10 +175,25 @@ export class ConversationsService {
                   );
         } else if (!current.lastOutboundAt || at > current.lastOutboundAt)
           current.lastOutboundAt = at;
+        current.lifecycleVersion = (current.lifecycleVersion ?? 0) + 1;
         await manager.save(current);
+        if (
+          input.direction === ConversationMessageDirection.INBOUND &&
+          wasClosed
+        ) {
+          await openAttention(
+            manager,
+            current.id,
+            `reopen:${message.id}`,
+            'Nuevo mensaje en una conversación cerrada',
+          );
+        }
       }
       if (
         input.queueAi &&
+        current.status === ConversationStatus.OPEN &&
+        current.aiMode === ConversationAiMode.AUTO &&
+        !current.optOutAt &&
         input.direction === ConversationMessageDirection.INBOUND
       )
         await insertAiJob(manager, current.id, message.id);
@@ -191,6 +227,8 @@ export class ConversationsService {
     });
     return (
       latestMessage?.id === inboundMessageId &&
+      (!conversation.aiActivatedAt ||
+        latestMessage.createdAt > conversation.aiActivatedAt) &&
       latestMessage.direction === ConversationMessageDirection.INBOUND
     );
   }
@@ -204,16 +242,24 @@ export class ConversationsService {
     page?: number;
     limit?: number;
     attention?: boolean;
+    status?: ConversationStatus;
   }) {
+    if (
+      options.status &&
+      !Object.values(ConversationStatus).includes(options.status)
+    )
+      throw new BadRequestException('Estado de conversación inválido.');
     const page = Math.max(1, options.page ?? 1);
     const limit = Math.min(100, Math.max(1, options.limit ?? 50));
     const qb = this.conversationsRepo
       .createQueryBuilder('conversation')
       .leftJoinAndSelect('conversation.contact', 'contact')
       .where(
-        '(conversation.status = :status OR conversation.attentionPending = true)',
+        options.status === ConversationStatus.CLOSED
+          ? 'conversation.status = :status'
+          : '(conversation.status = :status OR conversation.attentionPending = true)',
         {
-          status: ConversationStatus.OPEN,
+          status: options.status ?? ConversationStatus.OPEN,
         },
       );
     if (options.attention) qb.andWhere('conversation.attentionPending = true');
@@ -343,12 +389,23 @@ export class ConversationsService {
     aiMode: ConversationAiMode,
     reason?: string,
     attentionKey?: string,
+    actorUserId?: string,
   ) {
+    if (!Object.values(ConversationAiMode).includes(aiMode))
+      throw new BadRequestException('Modo de IA inválido.');
     return this.withConversationLock(id, async (manager) => {
       const conversation = await manager.findOneOrFail(Conversation, {
         where: { id },
         lock: { mode: 'pessimistic_write' },
       });
+      if (conversation.status === ConversationStatus.CLOSED)
+        throw new ConflictException(
+          'Reabre la conversación antes de cambiar el modo de IA.',
+        );
+      if (aiMode === ConversationAiMode.AUTO && conversation.optOutAt)
+        throw new ConflictException(
+          'La baja del contacto impide reactivar la IA.',
+        );
       if (aiMode === ConversationAiMode.AUTO && conversation.attentionPending)
         throw new ConflictException(
           'Marca la atención pendiente como atendida antes de reactivar la IA.',
@@ -362,11 +419,95 @@ export class ConversationsService {
         );
         return manager.findOneOrFail(Conversation, { where: { id } });
       }
+      const previousMode = conversation.aiMode;
       conversation.aiMode = aiMode;
+      if (aiMode === ConversationAiMode.AUTO)
+        conversation.aiActivatedAt = new Date();
+      conversation.lifecycleVersion = (conversation.lifecycleVersion ?? 0) + 1;
       conversation.handoffReason = reason?.slice(0, 255) ?? null;
       if (aiMode !== ConversationAiMode.AUTO)
         conversation.nextFollowUpAt = null;
-      return manager.save(conversation);
+      await manager.save(conversation);
+      if (actorUserId)
+        await manager.save(
+          PipelineEvent,
+          manager.create(PipelineEvent, {
+            conversationId: id,
+            fromStage: conversation.pipelineStage,
+            toStage: conversation.pipelineStage,
+            actor: PipelineEventActor.AGENT,
+            reason:
+              aiMode === ConversationAiMode.AUTO
+                ? 'IA activada expresamente desde el CRM'
+                : 'Modo de atención cambiado desde el CRM',
+            metadata: {
+              action: 'ai_mode_changed',
+              previousMode,
+              aiMode,
+              actorUserId,
+            },
+          }),
+        );
+      return conversation;
+    });
+  }
+
+  async setStatus(
+    id: string,
+    status: ConversationStatus,
+    version: unknown,
+    userId: string,
+  ) {
+    if (
+      !Object.values(ConversationStatus).includes(status) ||
+      typeof version !== 'number' ||
+      !Number.isSafeInteger(version) ||
+      version < 0
+    )
+      throw new BadRequestException(
+        'Estado o versión de conversación inválidos.',
+      );
+    return this.withConversationLock(id, async (manager) => {
+      const conversation = await manager.findOneOrFail(Conversation, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (conversation.lifecycleVersion !== version)
+        throw new ConflictException(
+          'La conversación ha cambiado. Actualízala antes de cerrar o reabrir.',
+        );
+      if (conversation.status === status) return conversation;
+      if (status === ConversationStatus.CLOSED && conversation.attentionPending)
+        throw new ConflictException(
+          'Marca la atención pendiente como atendida antes de cerrar.',
+        );
+      conversation.status = status;
+      conversation.aiMode = ConversationAiMode.HUMAN;
+      conversation.nextFollowUpAt = null;
+      conversation.lifecycleVersion++;
+      await manager.save(conversation);
+      await manager.save(
+        PipelineEvent,
+        manager.create(PipelineEvent, {
+          conversationId: id,
+          fromStage: conversation.pipelineStage,
+          toStage: conversation.pipelineStage,
+          actor: PipelineEventActor.AGENT,
+          reason:
+            status === ConversationStatus.CLOSED
+              ? 'Conversación cerrada desde el CRM'
+              : 'Conversación reabierta en atención humana desde el CRM',
+          metadata: {
+            action:
+              status === ConversationStatus.CLOSED
+                ? 'conversation_closed'
+                : 'conversation_reopened',
+            actorUserId: userId,
+            lifecycleVersion: conversation.lifecycleVersion,
+          },
+        }),
+      );
+      return conversation;
     });
   }
 
@@ -392,6 +533,7 @@ export class ConversationsService {
         `UPDATE conversation_attention_events SET "resolvedAt"=$2,"resolvedBy"=$3 WHERE "conversationId"=$1 AND "resolvedAt" IS NULL`,
         [id, now, userId],
       );
+      conversation.lifecycleVersion = (conversation.lifecycleVersion ?? 0) + 1;
       conversation.attentionPending = false;
       conversation.attentionAcknowledgedAt = now;
       conversation.attentionAcknowledgedBy = userId;
@@ -454,6 +596,7 @@ export class ConversationsService {
         lock: { mode: 'pessimistic_write' },
       });
       if (
+        conversation.status !== ConversationStatus.OPEN ||
         !conversation.optInAt ||
         conversation.optOutAt ||
         conversation.aiMode !== ConversationAiMode.AUTO

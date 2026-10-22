@@ -43,7 +43,7 @@ describe('Confirmaciones y atenciones persistentes en SQL aislado', () => {
   beforeAll(async () => {
     pg = new PGlite();
     await pg.exec(`CREATE TABLE users(id uuid PRIMARY KEY);
-      CREATE TABLE conversations(id uuid PRIMARY KEY,"externalContactKey" varchar(80),"aiMode" varchar(16) DEFAULT 'auto',"nextFollowUpAt" timestamptz,"handoffReason" varchar(255),"updatedAt" timestamptz DEFAULT now());
+      CREATE TABLE conversations(id uuid PRIMARY KEY,"lifecycleVersion" integer NOT NULL DEFAULT 0,"externalContactKey" varchar(80),"aiMode" varchar(16) DEFAULT 'auto',"nextFollowUpAt" timestamptz,"handoffReason" varchar(255),"updatedAt" timestamptz DEFAULT now());
       CREATE TABLE conversation_messages(id uuid PRIMARY KEY,"externalMessageId" varchar(160),direction varchar(16),"conversationId" uuid REFERENCES conversations(id));`);
     const query = async (sql: string, params?: unknown[]) =>
       (await pg.query(sql, params)).rows;

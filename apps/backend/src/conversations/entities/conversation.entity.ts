@@ -56,6 +56,12 @@ export class Conversation {
   })
   status: ConversationStatus;
 
+  @Column({ type: 'int', default: 0 })
+  lifecycleVersion: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  aiActivatedAt: Date | null;
+
   @Column({
     type: 'enum',
     enum: ConversationAiMode,

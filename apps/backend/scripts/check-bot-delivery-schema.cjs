@@ -24,7 +24,10 @@ async function check() {
       AND EXISTS (SELECT 1 FROM migrations WHERE name='AssistantConfiguration1760000005000')
       AND to_regclass('public.bot_config_versions') IS NOT NULL
       AND to_regclass('public.bot_config_state') IS NOT NULL
-      AND to_regclass('public.bot_config_usage_refs') IS NOT NULL AS ready`);
+      AND to_regclass('public.bot_config_usage_refs') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM migrations WHERE name='ConversationLifecycle1760000006000')
+      AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='conversations' AND column_name='lifecycleVersion')
+      AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='conversations' AND column_name='aiActivatedAt') AS ready`);
     if (rows[0]?.ready !== true) throw new Error('Schema pending');
     console.log('Migración de entrega persistente verificada.');
   } finally {

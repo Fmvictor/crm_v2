@@ -1,3 +1,5 @@
+import { EntityManager } from 'typeorm';
+import { ConflictException } from '@nestjs/common';
 import { BotConfigService } from '../bot-config/bot-config.service';
 import type { BotSnapshot } from '../bot-config/config-schema';
 import { parseMetaWebhook } from './meta-webhook';
@@ -101,6 +103,19 @@ export class WhatsAppService {
           ),
       );
     }
+    if (actor === ConversationMessageActor.AGENT) {
+      const key = randomUUID();
+      return this.withManualDelivery(options.to, false, key, (manager) =>
+        this.sendTemplateRecorded(
+          options,
+          actor,
+          createdById,
+          key,
+          undefined,
+          manager,
+        ),
+      );
+    }
     return this.sendTemplateRecorded(options, actor, createdById, randomUUID());
   }
 
@@ -110,6 +125,7 @@ export class WhatsAppService {
     createdById: string | undefined,
     dispatchKey: string,
     trace?: AutomaticDelivery,
+    manager?: EntityManager,
   ): Promise<void> {
     const { to, templateName, languageCode = 'es', params = [] } = options;
 
@@ -143,20 +159,6 @@ export class WhatsAppService {
       },
     };
 
-    if (actor === ConversationMessageActor.AGENT) {
-      const contact = await this.contactsService.findOneByPhone(phone);
-      if (contact) {
-        const conversation = await this.conversationsService.findOrCreate(
-          contact,
-          phone,
-        );
-        await this.conversationsService.setMode(
-          conversation.id,
-          ConversationAiMode.HUMAN,
-          'Respuesta manual del equipo',
-        );
-      }
-    }
     const url = `${apiUrl}/${phoneNumberId}/messages`;
 
     const providerId = await this.dispatches.deliver(dispatchKey, body, () =>
@@ -171,19 +173,23 @@ export class WhatsAppService {
           contact,
           phone,
         );
-        await this.conversationsService.recordMessage(conversation, {
-          externalMessageId: providerId,
-          direction: ConversationMessageDirection.OUTBOUND,
-          actor,
-          body: `[Plantilla WhatsApp: ${templateName}]`,
-          messageType: 'template',
-          metadata: trace?.configVersion
-            ? {
-                configurationVersion: trace.configVersion,
-                sources: trace.sources ?? [],
-              }
-            : undefined,
-        });
+        await this.conversationsService.recordMessage(
+          conversation,
+          {
+            externalMessageId: providerId,
+            direction: ConversationMessageDirection.OUTBOUND,
+            actor,
+            body: `[Plantilla WhatsApp: ${templateName}]`,
+            messageType: 'template',
+            metadata: trace?.configVersion
+              ? {
+                  configurationVersion: trace.configVersion,
+                  sources: trace.sources ?? [],
+                }
+              : undefined,
+          },
+          manager,
+        );
         await this.interactionsService.createSystemInteraction({
           contactId: contact.id,
           type: InteractionType.WHATSAPP,
@@ -193,7 +199,7 @@ export class WhatsAppService {
           externalMessageId: providerId,
         });
       }
-      await this.dispatches.recorded(dispatchKey);
+      if (!manager) await this.dispatches.recorded(dispatchKey);
     } catch {
       this.logger.error(
         'Meta aceptó el envío, pero falta completar su registro.',
@@ -229,6 +235,20 @@ export class WhatsAppService {
           ),
       );
     }
+    if (actor === ConversationMessageActor.AGENT) {
+      const key = randomUUID();
+      return this.withManualDelivery(to, true, key, (manager) =>
+        this.sendTextRecorded(
+          to,
+          text,
+          actor,
+          createdById,
+          key,
+          undefined,
+          manager,
+        ),
+      );
+    }
     return this.sendTextRecorded(to, text, actor, createdById, randomUUID());
   }
 
@@ -239,6 +259,7 @@ export class WhatsAppService {
     createdById: string | undefined,
     dispatchKey: string,
     trace?: AutomaticDelivery,
+    manager?: EntityManager,
   ): Promise<void> {
     const apiUrl =
       process.env.WHATSAPP_API_URL ?? 'https://graph.facebook.com/v25.0';
@@ -258,20 +279,6 @@ export class WhatsAppService {
       text: { body: text },
     };
 
-    if (actor === ConversationMessageActor.AGENT) {
-      const contact = await this.contactsService.findOneByPhone(phone);
-      if (contact) {
-        const conversation = await this.conversationsService.findOrCreate(
-          contact,
-          phone,
-        );
-        await this.conversationsService.setMode(
-          conversation.id,
-          ConversationAiMode.HUMAN,
-          'Respuesta manual del equipo',
-        );
-      }
-    }
     const url = `${apiUrl}/${phoneNumberId}/messages`;
     const providerId = await this.dispatches.deliver(dispatchKey, body, () =>
       this.sendToMeta(url, token, body),
@@ -284,19 +291,23 @@ export class WhatsAppService {
           contact,
           phone,
         );
-        await this.conversationsService.recordMessage(conversation, {
-          externalMessageId: providerId,
-          direction: ConversationMessageDirection.OUTBOUND,
-          actor,
-          body: text,
-          messageType: 'text',
-          metadata: trace?.configVersion
-            ? {
-                configurationVersion: trace.configVersion,
-                sources: trace.sources ?? [],
-              }
-            : undefined,
-        });
+        await this.conversationsService.recordMessage(
+          conversation,
+          {
+            externalMessageId: providerId,
+            direction: ConversationMessageDirection.OUTBOUND,
+            actor,
+            body: text,
+            messageType: 'text',
+            metadata: trace?.configVersion
+              ? {
+                  configurationVersion: trace.configVersion,
+                  sources: trace.sources ?? [],
+                }
+              : undefined,
+          },
+          manager,
+        );
         const interaction =
           await this.interactionsService.createSystemInteraction({
             contactId: contact.id,
@@ -310,13 +321,68 @@ export class WhatsAppService {
           await this.guidanceService.captureManualResponse(interaction.id);
         }
       }
-      await this.dispatches.recorded(dispatchKey);
+      if (!manager) await this.dispatches.recorded(dispatchKey);
     } catch {
       this.logger.error(
         'Meta aceptó el envío, pero falta completar su registro.',
       );
       throw new DeliveryHistoryError();
     }
+  }
+
+  private async withManualDelivery(
+    to: string,
+    requireWindow: boolean,
+    dispatchKey: string,
+    send: (manager: EntityManager) => Promise<void>,
+  ): Promise<void> {
+    const phone = to.replace(/[\s()-]/g, '');
+    const contact = await this.contactsService.findOneByPhone(phone);
+    if (!contact)
+      throw new ConflictException(
+        'El contacto no tiene una conversación abierta.',
+      );
+    const conversation = await this.conversationsService.findOrCreate(
+      contact,
+      phone,
+    );
+    // La toma humana queda confirmada incluso si Meta rechaza después el envío.
+    await this.conversationsService.setMode(
+      conversation.id,
+      ConversationAiMode.HUMAN,
+      'Respuesta manual del equipo',
+    );
+    await this.conversationsService.withConversationLock(
+      conversation.id,
+      async (manager) => {
+        const current = await manager.findOneOrFail(Conversation, {
+          where: { id: conversation.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (current.status !== ConversationStatus.OPEN)
+          throw new ConflictException(
+            'Reabre la conversación antes de responder.',
+          );
+        if (current.optOutAt)
+          throw new ConflictException('El contacto ha solicitado la baja.');
+        if (
+          requireWindow &&
+          (!current.lastInboundAt ||
+            Date.now() - current.lastInboundAt.getTime() > 24 * 60 * 60 * 1000)
+        )
+          throw new ConflictException(
+            'La ventana de 24 horas ha caducado. Espera un mensaje nuevo o utiliza una plantilla aprobada.',
+          );
+        current.aiMode = ConversationAiMode.HUMAN;
+        current.nextFollowUpAt = null;
+        current.handoffReason = 'Respuesta manual del equipo';
+        current.lifecycleVersion++;
+        await manager.save(current);
+        await send(manager);
+      },
+    );
+    // Sólo confirmar el historial después del COMMIT del mensaje manual.
+    await this.dispatches.recorded(dispatchKey);
   }
 
   private async assertAutomaticDelivery(

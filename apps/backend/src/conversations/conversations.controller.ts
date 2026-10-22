@@ -15,7 +15,10 @@ import {
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ConversationsService } from './conversations.service';
-import { ConversationAiMode } from './entities/conversation.entity';
+import {
+  ConversationAiMode,
+  ConversationStatus,
+} from './entities/conversation.entity';
 import { PipelineEventActor } from './entities/pipeline-event.entity';
 import { PipelineStage } from '../pipeline/pipeline-stage.enum';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -43,6 +46,7 @@ export class ConversationsController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('attention') attention?: string,
+    @Query('status') status?: ConversationStatus,
   ) {
     return this.conversationsService.findAll({
       stage,
@@ -53,6 +57,7 @@ export class ConversationsController {
       page: Number(page) || 1,
       limit: Number(limit) || 50,
       attention: attention === 'pending',
+      status,
     });
   }
 
@@ -83,7 +88,28 @@ export class ConversationsController {
   ) {
     this.assertCanEdit(request.user);
     if (body.aiMode === ConversationAiMode.AUTO) this.assertAdmin(request.user);
-    return this.conversationsService.setMode(id, body.aiMode, body.reason);
+    return this.conversationsService.setMode(
+      id,
+      body.aiMode,
+      body.reason,
+      undefined,
+      request.user.id,
+    );
+  }
+
+  @Patch(':id/status')
+  setStatus(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+    @Body() body: { status?: ConversationStatus; version?: number } | null,
+  ) {
+    this.assertCanEdit(request.user);
+    return this.conversationsService.setStatus(
+      id,
+      body?.status as ConversationStatus,
+      body?.version,
+      request.user.id,
+    );
   }
 
   @Patch(':id/stage')

@@ -47,6 +47,7 @@ export interface PipelineEvent {
   id: string;
   fromStage: PipelineStage | null;
   toStage: PipelineStage;
+  metadata?: { action?: string; actorUserId?: string } | null;
   actor: 'ai' | 'agent' | 'system';
   reason: string | null;
   createdAt: string;
@@ -54,6 +55,8 @@ export interface PipelineEvent {
 
 export interface Conversation {
   id: string;
+  status: 'open' | 'closed';
+  lifecycleVersion: number;
   externalContactKey: string;
   pipelineStage: PipelineStage;
   aiMode: ConversationAiMode;

@@ -375,12 +375,105 @@ async function main() {
     ).status,
     201,
   );
+  const statusPath = `/conversations/${conversationId}/status`;
+  const change = (body, headers = auth) =>
+    request(statusPath, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(body),
+    });
+  let current = await (
+    await request(`/conversations/${conversationId}`, { headers: auth })
+  ).json();
+  assert.equal(
+    (
+      await change(
+        { status: 'closed', version: current.lifecycleVersion },
+        viewerHeaders,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await change({ status: 'lost', version: current.lifecycleVersion }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await change({ status: 'closed', version: current.lifecycleVersion - 1 }))
+      .status,
+    409,
+  );
+  let closedResponse = await change({
+    status: 'closed',
+    version: current.lifecycleVersion,
+  });
+  assert.equal(closedResponse.status, 200);
+  current = await closedResponse.json();
+  assert.equal(current.status, 'closed');
+  assert.equal(current.aiMode, 'human');
+  assert.equal(current.nextFollowUpAt, null);
+  const closedList = await (
+    await request('/conversations?status=closed', { headers: auth })
+  ).json();
+  assert.ok(closedList.data.some((c) => c.id === conversationId));
+  const openList = await (
+    await request('/conversations?status=open', { headers: auth })
+  ).json();
+  assert.ok(!openList.data.some((c) => c.id === conversationId));
+  assert.equal(
+    (
+      await request(`/conversations/${conversationId}/send`, {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ text: 'Closed synthetic send' }),
+      })
+    ).status,
+    409,
+  );
+  assert.equal(transportCalls, 1);
+  assert.equal(
+    (
+      await request(`/conversations/${conversationId}/mode`, {
+        method: 'PATCH',
+        headers: auth,
+        body: JSON.stringify({ aiMode: 'auto' }),
+      })
+    ).status,
+    409,
+  );
+  const reopenResponse = await change({
+    status: 'open',
+    version: current.lifecycleVersion,
+  });
+  assert.equal(reopenResponse.status, 200);
+  current = await reopenResponse.json();
+  assert.equal(current.aiMode, 'human');
+  assert.equal(current.nextFollowUpAt, null);
+  assert.equal(transportCalls, 1);
+  const activation = await request(`/conversations/${conversationId}/mode`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ aiMode: 'auto' }),
+  });
+  assert.equal(activation.status, 200);
+  assert.ok((await activation.json()).aiActivatedAt);
+  assert.equal(transportCalls, 1);
   await db.destroy();
   await new Promise((resolve) => server.close(resolve));
   console.log(
     JSON.stringify(
       {
         api: true,
+        lifecycle: {
+          permissions: true,
+          inputValidation: true,
+          staleVersion: true,
+          closeAndFilters: true,
+          closedSendBlocked: true,
+          reopenKeepsHuman: true,
+          explicitActivationSendsNothing: true,
+        },
         budgetRoles: true,
         budgetConflict: true,
         budgetBlocksResume: true,

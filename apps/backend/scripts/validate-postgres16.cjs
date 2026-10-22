@@ -24,7 +24,9 @@ const { Contact } = require(join(dist, 'contacts/entities/contact.entity'));
 const { ConversationsService } = require(
   join(dist, 'conversations/conversations.service'),
 );
-const { BotConfigService } = require(join(dist, 'bot-config/bot-config.service'));
+const { BotConfigService } = require(
+  join(dist, 'bot-config/bot-config.service'),
+);
 const { AiJobStore } = require(join(dist, 'ai/ai-job.store'));
 const { AiQueueService } = require(join(dist, 'ai/ai-queue.service'));
 const { AiConversationProcessor } = require(
@@ -189,7 +191,9 @@ async function main() {
       24,
     );
   }
-  passed.push('two independent Node processes complete 120 jobs in five rounds without duplicate claims');
+  passed.push(
+    'two independent Node processes complete 120 jobs in five rounds without duplicate claims',
+  );
 
   await clean();
   current = await conversation();
@@ -343,6 +347,276 @@ async function main() {
   );
   passed.push(
     'human takeover while the model is pending suppresses the automatic reply',
+  );
+
+  await clean();
+  current = await conversation();
+  message = await inbound(current);
+  current = await conversations.findOne(current.id);
+  const operatorId = randomUUID();
+  const closed = await conversations.setStatus(
+    current.id,
+    'closed',
+    current.lifecycleVersion,
+    operatorId,
+  );
+  assert.equal(closed.aiMode, 'human');
+  assert.equal(closed.nextFollowUpAt, null);
+  assert.equal(await conversations.canAiReply(current.id, message.id), false);
+  assert.equal((await conversations.findOne(current.id)).messages.length, 1);
+  assert.equal(
+    (
+      await db.query(
+        `SELECT metadata->>'actorUserId' AS actor FROM pipeline_events WHERE metadata->>'action'='conversation_closed'`,
+      )
+    )[0].actor,
+    operatorId,
+  );
+  passed.push(
+    'closing keeps history, cancels follow-ups, blocks AI and audits the operator',
+  );
+  await assert.rejects(
+    () =>
+      conversations.setStatus(
+        current.id,
+        'open',
+        current.lifecycleVersion,
+        operatorId,
+      ),
+    /ha cambiado/,
+  );
+  passed.push(
+    'a stale lifecycle version cannot reopen a newly closed conversation',
+  );
+  await assert.rejects(
+    () => conversations.setMode(current.id, 'auto'),
+    /Reabre/,
+  );
+  passed.push('AI activation cannot implicitly reopen a closed conversation');
+  let reopened = await conversations.setStatus(
+    current.id,
+    'open',
+    closed.lifecycleVersion,
+    operatorId,
+  );
+  assert.equal(reopened.aiMode, 'human');
+  assert.equal(reopened.nextFollowUpAt, null);
+  await conversations.setMode(
+    current.id,
+    'auto',
+    undefined,
+    undefined,
+    operatorId,
+  );
+  assert.equal(await conversations.canAiReply(current.id, message.id), false);
+  passed.push(
+    'reopen stays human and voluntary activation never replays an old inbound',
+  );
+  await db.query('SELECT pg_sleep(0.01)');
+  message = await inbound(current);
+  assert.equal(await conversations.canAiReply(current.id, message.id), true);
+  passed.push('only a new inbound after activation can receive an AI reply');
+  reopened = await conversations.findOne(current.id);
+  await inbound(current);
+  await assert.rejects(
+    () =>
+      conversations.setStatus(
+        current.id,
+        'closed',
+        reopened.lifecycleVersion,
+        operatorId,
+      ),
+    /ha cambiado/,
+  );
+  passed.push(
+    'an inbound arriving after the displayed version prevents an unseen-message closure',
+  );
+  reopened = await conversations.findOne(current.id);
+  const competing = await Promise.allSettled([
+    conversations.setStatus(
+      current.id,
+      'closed',
+      reopened.lifecycleVersion,
+      operatorId,
+    ),
+    conversations.setStatus(
+      current.id,
+      'closed',
+      reopened.lifecycleVersion,
+      operatorId,
+    ),
+  ]);
+  assert.equal(competing.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal(competing.filter((r) => r.status === 'rejected').length, 1);
+  passed.push(
+    'two simultaneous closures commit once and fence the stale operator',
+  );
+  const jobsBefore = Number(
+    (await db.query('SELECT count(*) FROM ai_reply_jobs'))[0].count,
+  );
+  const newInboundId = randomUUID();
+  await Promise.all(
+    Array.from({ length: 12 }, () => inbound(current, newInboundId)),
+  );
+  reopened = await conversations.findOne(current.id);
+  assert.equal(reopened.status, 'open');
+  assert.equal(reopened.aiMode, 'human');
+  assert.equal(reopened.attentionPending, true);
+  assert.equal(reopened.attentionVersion, 1);
+  assert.equal(reopened.nextFollowUpAt, null);
+  assert.equal(
+    Number((await db.query('SELECT count(*) FROM ai_reply_jobs'))[0].count),
+    jobsBefore,
+  );
+  assert.equal(
+    Number(
+      (await db.query(`SELECT count(*) FROM conversation_attention_events`))[0]
+        .count,
+    ),
+    1,
+  );
+  passed.push(
+    '12 copies of a closed-conversation inbound reopen once for human attention with no AI job',
+  );
+  await assert.rejects(
+    () =>
+      conversations.setStatus(
+        current.id,
+        'closed',
+        reopened.lifecycleVersion,
+        operatorId,
+      ),
+    /atendida/,
+  );
+  passed.push('pending human attention cannot be hidden by closing');
+  await clean();
+  current = await conversation();
+  await conversations.updateLead(current.id, { optOut: true });
+  current = await conversations.findOne(current.id);
+  let result = await conversations.setStatus(
+    current.id,
+    'closed',
+    current.lifecycleVersion,
+    operatorId,
+  );
+  result = await conversations.setStatus(
+    current.id,
+    'open',
+    result.lifecycleVersion,
+    operatorId,
+  );
+  assert.ok(result.optOutAt);
+  await assert.rejects(() => conversations.setMode(current.id, 'auto'), /baja/);
+  passed.push(
+    'closure and reopening preserve opt-out and forbid AI activation',
+  );
+
+  await clean();
+  const manualContact = await db
+    .getRepository(Contact)
+    .save({ name: 'Synthetic manual operator test', phone: '000000002' });
+  current = await conversations.findOrCreate(
+    manualContact,
+    manualContact.phone,
+  );
+  await inbound(current);
+  let releaseSend, enteredSend;
+  const transportEntered = new Promise((resolve) => {
+    enteredSend = resolve;
+  });
+  const transportHold = new Promise((resolve) => {
+    releaseSend = resolve;
+  });
+  let historiesConfirmed = 0;
+  const { WhatsAppService } = require(join(dist, 'whatsapp/whatsapp.service'));
+  const manualService = new WhatsAppService(
+    { findOneByPhone: async () => manualContact },
+    { createSystemInteraction: async () => ({ id: randomUUID() }) },
+    conversations,
+    {},
+    { captureManualResponse: async () => {} },
+    {
+      deliver: async () => {
+        enteredSend();
+        await transportHold;
+        return 'synthetic-manual-' + randomUUID();
+      },
+      recorded: async () => {
+        const count = Number(
+          (
+            await db.query(
+              `SELECT count(*) FROM conversation_messages WHERE "conversationId"=$1 AND actor='agent'`,
+              [current.id],
+            )
+          )[0].count,
+        );
+        assert.equal(
+          count,
+          1,
+          'History is confirmed only after its transaction commits',
+        );
+        historiesConfirmed++;
+      },
+    },
+    {},
+    new BotConfigService(db),
+  );
+  const sending = manualService.sendText(
+    manualContact.phone,
+    'Synthetic manual reply',
+    'agent',
+  );
+  await transportEntered;
+  const duringSend = await conversations.findOne(current.id);
+  let closeSettled = false;
+  const closing = conversations
+    .setStatus(current.id, 'closed', duringSend.lifecycleVersion, operatorId)
+    .then(
+      () => {
+        closeSettled = true;
+        throw new Error('A stale closure unexpectedly committed');
+      },
+      (error) => {
+        closeSettled = true;
+        assert.match(error.message, /ha cambiado/);
+      },
+    );
+  await db.query('SELECT pg_sleep(0.05)');
+  assert.equal(closeSettled, false);
+  releaseSend();
+  await sending;
+  await closing;
+  assert.equal(historiesConfirmed, 1);
+  assert.equal((await conversations.findOne(current.id)).aiMode, 'human');
+  passed.push(
+    'manual delivery serializes against closure and confirms history only after commit',
+  );
+
+  current = await conversations.findOne(current.id);
+  await conversations.setStatus(
+    current.id,
+    'closed',
+    current.lifecycleVersion,
+    operatorId,
+  );
+  const { openAttention } = require(
+    join(dist, 'conversations/attention-store'),
+  );
+  await conversations.withConversationLock(current.id, (manager) =>
+    openAttention(
+      manager,
+      current.id,
+      'late-failure',
+      'Synthetic late delivery failure',
+    ),
+  );
+  assert.ok(
+    (
+      await conversations.findAll({ status: 'open', attention: true })
+    ).data.some((c) => c.id === current.id),
+  );
+  passed.push(
+    'late delivery attention on a closed conversation remains visible in the open-attention view',
   );
 
   await db.destroy();
