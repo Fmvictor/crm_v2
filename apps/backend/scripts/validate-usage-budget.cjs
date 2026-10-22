@@ -35,15 +35,13 @@ const worker = () =>
   assert.ok(
     (await db.query('SHOW server_version'))[0].server_version.startsWith('16.'),
   );
-  const operator = await db
-    .getRepository(User)
-    .save({
-      name: 'Operador sintético',
-      email: `${randomUUID()}@example.invalid`,
-      password: 'not-used-for-login',
-      role: 'admin',
-      isActive: true,
-    });
+  const operator = await db.getRepository(User).save({
+    name: 'Operador sintético',
+    email: `${randomUUID()}@example.invalid`,
+    password: 'not-used-for-login',
+    role: 'admin',
+    isActive: true,
+  });
   const passed = [];
   const reset = async (limit) => {
     await db.query('DELETE FROM ai_usage_calls');
@@ -51,10 +49,12 @@ const worker = () =>
     await usage.configure(limit, budget.version, operator.id);
     await usage.resume(operator.id);
   };
+  const fittingCalls = Math.floor(1e6 / reserveCost(1000));
+  assert.ok(fittingCalls < 24);
   await reset(1);
   await Promise.all([worker(), worker()]);
   let current = await usage.summary();
-  assert.equal(current.calls, 2);
+  assert.equal(current.calls, fittingCalls);
   assert.ok(current.accountedEur <= 1);
   assert.equal(current.blocked, true);
   assert.equal(
@@ -72,7 +72,7 @@ const worker = () =>
     (await db.query('SELECT paused FROM bot_control WHERE id=1'))[0].paused,
     true,
   );
-  assert.equal((await usage.summary()).calls, 2);
+  assert.equal((await usage.summary()).calls, fittingCalls);
   passed.push(
     'raising the limit preserves consumption and does not resume the bot',
   );

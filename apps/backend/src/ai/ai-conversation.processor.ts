@@ -138,6 +138,15 @@ export class AiConversationProcessor {
             })),
           courseInterest: conversation.contact?.courseInterest,
         }),
+      {
+        previousMessages: messages
+          .slice(0, messages.indexOf(lastInbound))
+          .map((message) => ({
+            direction: message.direction,
+            body: message.body,
+          })),
+        courseInterest: conversation.contact?.courseInterest,
+      },
     );
     let decision: Awaited<ReturnType<OpenAiService['decide']>>;
     try {

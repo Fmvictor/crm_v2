@@ -36,9 +36,9 @@ describe('OpenAiService', () => {
     else process.env.OPENAI_MODEL = originalModel;
   });
 
-  it('does not send temperature to gpt-6-astra', async () => {
+  it('does not send temperature to gpt-6.1-sol', async () => {
     process.env.OPENAI_API_KEY = 'test-key';
-    process.env.OPENAI_MODEL = 'gpt-6-astra';
+    process.env.OPENAI_MODEL = 'gpt-6.1-sol';
     const fetchMock = jest
       .fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>()
       .mockResolvedValue({
@@ -72,7 +72,7 @@ describe('OpenAiService', () => {
     const request = JSON.parse(
       (fetchMock.mock.calls[0][1] as RequestInit).body as string,
     ) as Record<string, unknown>;
-    expect(request.model).toBe('gpt-6-astra');
+    expect(request.model).toBe('gpt-6.1-sol');
     expect(request.temperature).toBeUndefined();
     expect((fetchMock.mock.calls[0][1] as RequestInit).signal).toBeInstanceOf(
       AbortSignal,
@@ -364,7 +364,7 @@ describe('Configuración publicada en la petición a OpenAI', () => {
         status: 200,
         json: () =>
           Promise.resolve({
-            model: 'gpt-6-astra',
+            model: 'gpt-6.1-sol',
             service_tier: 'default',
             usage: { input_tokens: 200, output_tokens: 10 },
             output_text: JSON.stringify({
