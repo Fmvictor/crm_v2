@@ -63,10 +63,16 @@ export class AiConversationProcessor {
       conversation.optOutAt
     )
       return;
-    const messages = await this.conversationsService.getRecentMessages(
+    const recentMessages = await this.conversationsService.getRecentMessages(
       conversationId,
       20,
     );
+    // Una activación expresa inicia otra etapa de IA. Los avisos y respuestas
+    // humanos anteriores se conservan en CRM, pero no describen el control actual.
+    const activatedAt = conversation.aiActivatedAt;
+    const messages = activatedAt
+      ? recentMessages.filter((message) => message.createdAt > activatedAt)
+      : recentMessages;
     const lastInbound = [...messages]
       .reverse()
       .find(
