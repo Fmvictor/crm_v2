@@ -50,10 +50,17 @@ describe('WhatsApp delivery controls', () => {
       externalContactKey: '000000001',
       status: 'open',
       aiMode: 'auto',
+      lifecycleVersion: 0,
+      lastInboundAt: new Date(),
     });
     conversations.canAiReply.mockResolvedValue(true);
     conversations.withConversationLock.mockImplementation(
-      (_id: string, callback: () => Promise<void>) => callback(),
+      (_id: string, callback: (manager: unknown) => Promise<void>) =>
+        callback({
+          findOneOrFail: async (): Promise<unknown> =>
+            conversations.findOne() as Promise<unknown>,
+          save: jest.fn().mockResolvedValue(undefined),
+        }),
     );
     interactions.createSystemInteraction.mockResolvedValue({
       id: 'interaction',
@@ -87,6 +94,45 @@ describe('WhatsApp delivery controls', () => {
     expect(interactions.createSystemInteraction).toHaveBeenCalledWith(
       expect.objectContaining({ externalMessageId: 'provider-test-id' }),
     );
+  });
+  it.each(['text', 'template'])(
+    'rejects manual %s on a closed conversation before Meta',
+    async (kind) => {
+      conversations.findOne.mockResolvedValue({ status: 'closed' });
+      await expect(
+        kind === 'text'
+          ? service.sendText(
+              '000000001',
+              'Prueba',
+              ConversationMessageActor.AGENT,
+            )
+          : service.sendTemplate(
+              { to: '000000001', templateName: 'synthetic' },
+              ConversationMessageActor.AGENT,
+            ),
+      ).rejects.toThrow('Reabre');
+      expect(dispatches.deliver).not.toHaveBeenCalled();
+    },
+  );
+  it('rejects manual text outside the 24 hour window', async () => {
+    conversations.findOne.mockResolvedValue({
+      status: 'open',
+      lastInboundAt: new Date(Date.now() - 25 * 3600000),
+    });
+    await expect(
+      service.sendText('000000001', 'Prueba', ConversationMessageActor.AGENT),
+    ).rejects.toThrow('24 horas');
+    expect(dispatches.deliver).not.toHaveBeenCalled();
+  });
+  it('rejects manual sends after an opt-out', async () => {
+    conversations.findOne.mockResolvedValue({
+      status: 'open',
+      optOutAt: new Date(),
+    });
+    await expect(
+      service.sendText('000000001', 'Prueba', ConversationMessageActor.AGENT),
+    ).rejects.toThrow('baja');
+    expect(dispatches.deliver).not.toHaveBeenCalled();
   });
   it('checks a human takeover again under the conversation lock', async () => {
     conversations.canAiReply.mockResolvedValue(false);

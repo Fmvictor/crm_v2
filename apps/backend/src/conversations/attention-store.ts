@@ -18,7 +18,7 @@ export async function openAttention(
   if (!inserted.length) return;
   await manager.query(
     `UPDATE conversations SET "attentionPending"=true,
-    "attentionVersion"="attentionVersion"+1, "attentionReason"=$2,
+    "attentionVersion"="attentionVersion"+1, "lifecycleVersion"="lifecycleVersion"+1, "attentionReason"=$2,
     "attentionRequestedAt"=now(), "attentionAcknowledgedAt"=NULL,
     "attentionAcknowledgedBy"=NULL, "aiMode"='human', "handoffReason"=$2,
     "nextFollowUpAt"=NULL, "updatedAt"=now() WHERE id=$1`,
