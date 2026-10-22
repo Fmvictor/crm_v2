@@ -619,6 +619,85 @@ async function main() {
     'late delivery attention on a closed conversation remains visible in the open-attention view',
   );
 
+  await clean();
+  current = await conversation();
+  await db
+    .getRepository(Contact)
+    .update(current.contactId, { courseInterest: 'CMB1' });
+  await inbound(current);
+  await conversations.setMode(current.id, 'human', 'Synthetic handoff');
+  await conversations.recordMessage(current, {
+    direction: 'outbound',
+    actor: 'agent',
+    body: 'Synthetic operator took over',
+    providerTimestamp: new Date(),
+  });
+  current = await conversations.findOne(current.id);
+  let lifecycle = await conversations.setStatus(
+    current.id,
+    'closed',
+    current.lifecycleVersion,
+    operatorId,
+  );
+  lifecycle = await conversations.setStatus(
+    current.id,
+    'open',
+    lifecycle.lifecycleVersion,
+    operatorId,
+  );
+  await conversations.setMode(
+    current.id,
+    'auto',
+    undefined,
+    undefined,
+    operatorId,
+  );
+  await db.query('SELECT pg_sleep(0.01)');
+  const fresh = await conversations.recordMessage(current, {
+    direction: 'inbound',
+    actor: 'lead',
+    body: '¿El CMB1 incluye campus y soporte después del curso?',
+    providerTimestamp: new Date(),
+    queueAi: true,
+  });
+  let capturedContext, selectedCourse, replyPolicy;
+  const reactivatedProcessor = new AiConversationProcessor(
+    conversations,
+    {
+      decide: async (context) => {
+        capturedContext = context;
+        return { reply: 'Synthetic sourced campus answer', handoff: false };
+      },
+    },
+    {
+      getContext: async (_question, context) => {
+        selectedCourse = context.courseInterest;
+        assert.deepEqual(context.previousMessages, []);
+        return 'Synthetic approved CMB1 campus and support facts';
+      },
+    },
+    { isPaused: async () => false },
+    {
+      sendText: async (_phone, _body, _actor, _user, delivery) => {
+        replyPolicy = delivery.policy;
+      },
+    },
+    new BotConfigService(db),
+  );
+  await reactivatedProcessor.process(current.id, fresh.id);
+  assert.equal(selectedCourse, 'CMB1');
+  assert.deepEqual(capturedContext.messages, [
+    {
+      direction: 'inbound',
+      body: '¿El CMB1 incluye campus y soporte después del curso?',
+    },
+  ]);
+  assert.equal(replyPolicy, 'reply');
+  assert.equal((await conversations.findOne(current.id)).messages.length, 3);
+  passed.push(
+    'real close/reopen/activation retains CRM history but sends only the new episode to AI and retrieval',
+  );
+
   await db.destroy();
   console.log(
     JSON.stringify(

@@ -143,6 +143,177 @@ describe('AiConversationProcessor', () => {
     });
   });
 
+  it('tras reactivar excluye la derivación y la respuesta humana antiguas sin perder el curso guardado', async () => {
+    const activatedAt = new Date('2026-10-22T09:35:00Z');
+    const latest = {
+      id: 'new-inbound',
+      direction: 'inbound',
+      body: '¿El CMB1 incluye campus y soporte después del curso?',
+      createdAt: new Date('2026-10-22T09:36:00Z'),
+    };
+    const conversation = {
+      aiMode: 'auto',
+      status: 'open',
+      aiActivatedAt: activatedAt,
+      pipelineStage: 'contacted',
+      externalContactKey: 'synthetic',
+      contact: { courseInterest: 'CMB1' },
+    };
+    const conversations = {
+      findOne: jest.fn().mockResolvedValue(conversation),
+      getRecentMessages: jest.fn().mockResolvedValue([
+        {
+          direction: 'inbound',
+          body: 'Quiero hablar con Víctor',
+          createdAt: new Date('2026-10-22T09:20:00Z'),
+        },
+        {
+          direction: 'outbound',
+          body: 'Te paso con Víctor',
+          createdAt: new Date('2026-10-22T09:21:00Z'),
+        },
+        {
+          direction: 'outbound',
+          actor: 'system',
+          body: 'Atención humana activa',
+          createdAt: new Date('2026-10-22T09:22:00Z'),
+        },
+        {
+          direction: 'outbound',
+          actor: 'agent',
+          body: 'Soy Víctor y te atiendo personalmente',
+          createdAt: new Date('2026-10-22T09:24:00Z'),
+        },
+        latest,
+      ]),
+      canAiReply: jest.fn().mockResolvedValue(true),
+      updateLead: jest.fn(),
+    };
+    const knowledge = {
+      getContext: jest
+        .fn()
+        .mockResolvedValue(
+          'El CMB1 incluye campus y soporte durante 12 meses.',
+        ),
+    };
+    const model = {
+      decide: jest.fn().mockResolvedValue({
+        reply: 'Incluye campus y soporte de 12 meses.',
+        informationVerified: true,
+        handoff: false,
+      }),
+    };
+    const whatsapp = { sendText: jest.fn() };
+    await createProcessor(
+      conversations,
+      model,
+      knowledge,
+      { isPaused: jest.fn().mockResolvedValue(false) },
+      whatsapp,
+    ).process('conversation', latest.id);
+    expect(model.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ direction: 'inbound', body: latest.body }],
+      }),
+    );
+    expect(knowledge.getContext).toHaveBeenCalledWith(latest.body, {
+      previousMessages: [],
+      courseInterest: 'CMB1',
+    });
+    expect(whatsapp.sendText).toHaveBeenCalledWith(
+      'synthetic',
+      'Incluye campus y soporte de 12 meses.',
+      'ai',
+      undefined,
+      expect.objectContaining({ policy: 'reply' }),
+    );
+  });
+
+  it('conserva los turnos posteriores a la activación durante la nueva atención', async () => {
+    const before = {
+      direction: 'outbound',
+      body: 'Atención humana antigua',
+      createdAt: new Date('2026-10-22T09:20:00Z'),
+    };
+    const first = {
+      direction: 'inbound',
+      body: 'Me interesa CMB1',
+      createdAt: new Date('2026-10-22T09:36:00Z'),
+    };
+    const reply = {
+      direction: 'outbound',
+      body: 'Tiene modalidad híbrida',
+      createdAt: new Date('2026-10-22T09:36:10Z'),
+    };
+    const latest = {
+      id: 'latest',
+      direction: 'inbound',
+      body: '¿Qué incluye?',
+      createdAt: new Date('2026-10-22T09:37:00Z'),
+    };
+    const conversations = {
+      findOne: jest.fn().mockResolvedValue({
+        aiMode: 'auto',
+        status: 'open',
+        aiActivatedAt: new Date('2026-10-22T09:35:00Z'),
+        pipelineStage: 'contacted',
+      }),
+      getRecentMessages: jest
+        .fn()
+        .mockResolvedValue([before, first, reply, latest]),
+      canAiReply: jest.fn().mockResolvedValue(true),
+      updateLead: jest.fn(),
+    };
+    const model = {
+      decide: jest.fn().mockResolvedValue({
+        reply: 'Respuesta con evidencia',
+        handoff: false,
+      }),
+    };
+    await createProcessor(
+      conversations,
+      model,
+      { getContext: jest.fn().mockResolvedValue('Conocimiento autorizado') },
+      { isPaused: jest.fn().mockResolvedValue(false) },
+      { sendText: jest.fn() },
+    ).process('conversation', latest.id);
+    expect(model.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [first, reply, latest].map(({ direction, body }) => ({
+          direction,
+          body,
+        })),
+      }),
+    );
+  });
+
+  it('no genera ni deriva por mensajes que preceden a la activación', async () => {
+    const conversations = {
+      findOne: jest.fn().mockResolvedValue({
+        aiMode: 'auto',
+        status: 'open',
+        aiActivatedAt: new Date('2026-10-22T09:35:00Z'),
+      }),
+      getRecentMessages: jest.fn().mockResolvedValue([
+        {
+          id: 'old',
+          direction: 'inbound',
+          body: 'Quiero hablar con una persona',
+          createdAt: new Date('2026-10-22T09:20:00Z'),
+        },
+      ]),
+      canAiReply: jest.fn(),
+      setMode: jest.fn(),
+    };
+    const model = { decide: jest.fn() };
+    await createProcessor(conversations, model, {}, {}, {}).process(
+      'conversation',
+      'old',
+    );
+    expect(model.decide).not.toHaveBeenCalled();
+    expect(conversations.setMode).not.toHaveBeenCalled();
+  });
+
   afterAll(() => {
     if (previousHumanAttentionPhone === undefined)
       delete process.env.HUMAN_ATTENTION_WHATSAPP_PHONE;

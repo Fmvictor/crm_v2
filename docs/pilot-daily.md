@@ -13,6 +13,7 @@ El administrador ve llamadas, tokens, coste estimado, reservas y saldo en Pipeli
 - La vista «Abiertas y pendientes» conserva visibles también las atenciones pendientes de una conversación cerrada (por ejemplo, un fallo de entrega recibido después del cierre).
 - El selector «Conversaciones → Cerradas» permite consultar el historial y reabrir.
 - «Reabrir para atención humana» mantiene la IA inactiva y conserva las bajas. Un mensaje nuevo recibido en una conversación cerrada también la reabre para atención humana y crea una atención pendiente, sin contestación automática.
+- La activación comienza una nueva etapa para la IA: recibe los mensajes posteriores a esa activación y conserva el curso guardado al recuperar las fuentes. Los avisos y respuestas humanos anteriores permanecen en el historial del CRM, pero no se envían como si fueran el estado actual.
 - Un administrador debe pulsar expresamente «Activar IA». No se reproduce el mensaje anterior: sólo se responde a un mensaje nuevo recibido después de activar. Marcar atendida, responder manualmente, mover una tarjeta o reabrir no activan la IA.
 - No se permite responder desde una conversación cerrada ni enviar a una baja. El texto manual necesita ventana de 24 horas; fuera de ella se espera una nueva consulta o se utiliza una plantilla aprobada cuando proceda.
 - Cierres, reaperturas y cambios manuales de modo quedan atribuidos en el historial. Los cierres y los envíos usan el bloqueo de la conversación para evitar carreras.
@@ -57,3 +58,7 @@ Antes de activar esa tanda, verificar que la información para su consulta está
 | Mensajes y uso de IA con atribución, versión y consumo trazables | 100 % cuando corresponde |
 
 Cualquier fallo de baja, consentimiento, control humano, duplicado o dato comercial inventado detiene la ampliación y pasa a revisión. Un aviso aceptado por Meta no se declara entregado hasta recibir la confirmación. No se promete atención fuera del horario aprobado. Estos criterios son una propuesta de aceptación del piloto, no una monitorización ya programada.
+
+## Corrección detectada en la prueba real
+
+La consulta posterior a una activación se derivaba otra vez porque el modelo recibía los avisos de atención humana del historial anterior. Se acota el contexto de generación y de recuperación de fuentes a los mensajes posteriores a `aiActivatedAt`, conservando el historial completo en el CRM, el curso y la etapa guardados y todas las protecciones. Se mantiene `store: false` y la gestión de contexto en la aplicación, descrita en [OpenAI Docs: estado de conversación](https://developers.openai.com/api/docs/guides/conversation-state). La elección de qué turnos pertenecen a la nueva atención es una decisión de esta aplicación.
