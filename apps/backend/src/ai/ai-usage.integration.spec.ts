@@ -102,13 +102,42 @@ describe('Presupuesto y consumo en SQL aislado', () => {
       output: 100,
       reasoning: 50,
     });
-    expect(cost.usdMicros).toBe(13450);
+    expect(cost.usdMicros).toBe(2670);
     expect(summary.accountedEur).toBe(cost.eurMicros / 1e6);
     await usage.settle(id, payload, 200, 1500);
     expect((await usage.summary()).calls).toBe(1);
   });
+  it('conserva el coste y modelo históricos al contabilizar llamadas del modelo nuevo', async () => {
+    const old = await usage.reserve(AI_PRICING.model, 500);
+    await usage.settle(old, payload, 200, 1);
+    await pg.query(
+      `UPDATE ai_usage_calls SET model='gpt-6-astra',"chargedMicros"=1000000,pricing=$2 WHERE id=$1`,
+      [old, JSON.stringify({ model: 'gpt-6-astra', checkedAt: '2026-10-20' })],
+    );
+    const next = await usage.reserve(AI_PRICING.model, 500);
+    await usage.settle(next, payload, 200, 1);
+    expect((await usage.summary()).accountedEur).toBe(
+      1 +
+        usageCost({
+          input: 1000,
+          cached: 200,
+          cacheWrites: 100,
+          output: 100,
+          reasoning: 50,
+        }).eurMicros /
+          1e6,
+    );
+    expect(
+      (
+        await pg.query<{ model: string }>(
+          'SELECT model FROM ai_usage_calls WHERE id=$1',
+          [old],
+        )
+      ).rows[0].model,
+    ).toBe('gpt-6-astra');
+  });
   it('reserva antes de gastar e impide sobrepasar el saldo con peticiones concurrentes', async () => {
-    await usage.configure(0.5, 0, user);
+    await usage.configure(0.1, 0, user);
     const result = await Promise.allSettled(
       Array.from({ length: 8 }, () => usage.reserve(AI_PRICING.model, 1000)),
     );
@@ -269,7 +298,7 @@ describe('Presupuesto y consumo en SQL aislado', () => {
       output: 100,
       reasoning: 0,
     });
-    expect(long.usdMicros).toBe(7507500);
+    expect(long.usdMicros).toBe(1501500);
     expect(reserveCost(300000)).toBeGreaterThan(long.eurMicros);
   });
 });

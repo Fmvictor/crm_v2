@@ -1,4 +1,9 @@
 import {
+  selectDocumentContext,
+  needsSecondaryWeb,
+  RetrievalConversation,
+} from './document-context';
+import {
   BadRequestException,
   ConflictException,
   Injectable,
@@ -234,6 +239,7 @@ export class BotConfigService {
     snapshot: BotSnapshot,
     query: string,
     web: () => Promise<string>,
+    conversation?: RetrievalConversation,
   ) {
     const today = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Europe/Madrid',
@@ -247,10 +253,19 @@ export class BotConfigService {
       name: d.name,
       hash: createHash('sha256').update(d.content).digest('hex'),
     }));
-    const manual = docs
-      .map((d) => `DOCUMENTO APROBADO: ${d.name}\n${d.content}`)
+    const selected = docs.map((d) => ({
+      document: d,
+      ...selectDocumentContext(d.content, query, conversation),
+    }));
+    const manual = selected
+      .map((d) => `DOCUMENTO APROBADO: ${d.document.name}\n${d.content}`)
       .join('\n\n');
-    let webContext = snapshot.configuration.rules.webEnabled ? await web() : '';
+    const focused = selected.length > 0 && selected.every((d) => d.focused);
+    let webContext =
+      snapshot.configuration.rules.webEnabled &&
+      needsSecondaryWeb(query, manual, focused)
+        ? await web()
+        : '';
     if (
       manual &&
       /no se ha podido verificar|no hay copia local|no se ha podido cargar/i.test(

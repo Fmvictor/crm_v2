@@ -42,7 +42,7 @@ export class OpenAiService {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OPENAI_API_KEY no configurada');
 
-    const model = process.env.OPENAI_MODEL || 'gpt-6-astra';
+    const model = process.env.OPENAI_MODEL || AI_PRICING.model;
     const input = [
       {
         role: 'developer',

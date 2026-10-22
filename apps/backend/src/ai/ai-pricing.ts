@@ -1,13 +1,13 @@
-// Tarifas Standard y cambio de referencia contrastados el 20-10-2026.
+// Tarifas Standard y cambio de referencia contrastados el 22-10-2026.
 // El resultado es una estimación del bot, sin impuestos ni cargos de otros sistemas.
 export const AI_PRICING = {
-  model: 'gpt-6-astra',
-  checkedAt: '2026-10-20',
+  model: 'gpt-6.1-sol',
+  checkedAt: '2026-10-22',
   validUntil: '2026-11-20',
   usdPerEur: 1.1215,
   exchangeDate: '2026-10-20',
   maxOutputTokens: 8192,
-  source: 'https://developers.openai.com/api/docs/models/gpt-6-astra',
+  source: 'https://developers.openai.com/api/docs/models/gpt-6.1-sol',
   exchangeSource:
     'https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html',
 } as const;
@@ -67,10 +67,10 @@ export function usageCost(usage: ReportedUsage): {
   const long = usage.input > 272_000;
   const nanos =
     BigInt(usage.input - usage.cached - usage.cacheWrites) *
-      BigInt(long ? 20_000 : 10_000) +
-    BigInt(usage.cached) * BigInt(long ? 2_000 : 1_000) +
-    BigInt(usage.cacheWrites) * BigInt(long ? 25_000 : 12_500) +
-    BigInt(usage.output) * BigInt(long ? 75_000 : 50_000);
+      BigInt(long ? 4_000 : 2_000) +
+    BigInt(usage.cached) * BigInt(long ? 200 : 100) +
+    BigInt(usage.cacheWrites) * BigInt(long ? 5_000 : 2_500) +
+    BigInt(usage.output) * BigInt(long ? 15_000 : 10_000);
   const ceil = (value: bigint, divisor: bigint) =>
     (value + divisor - 1n) / divisor;
   return {
