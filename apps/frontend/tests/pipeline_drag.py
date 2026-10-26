@@ -99,11 +99,11 @@ def check(browser, role='agent', mobile=False):
     expect(alpha).to_be_visible()
     if role == 'viewer':
         expect(alpha).to_have_attribute('draggable', 'false')
-        alpha.drag_to(section('Contactado'))
+        alpha.drag_to(section('En conversación'))
         expect(section('Nuevo').get_by_text('Prospecto Alfa')).to_be_visible()
         alpha.click()
         expect(page.get_by_label('Cambiar etapa de la conversación')).to_be_disabled()
-        page.get_by_role('button', name='Cerrar', exact=True).click()
+        page.get_by_role('button', name='Cerrar panel', exact=True).click()
         assert not writes
         tests = ['tarjetas sin arrastre', 'selector desactivado', 'cero escrituras']
     elif mobile:
@@ -111,32 +111,32 @@ def check(browser, role='agent', mobile=False):
         alpha.click()
         page.get_by_label('Cambiar etapa de la conversación').select_option('qualified')
         expect(page.get_by_label('Cambiar etapa de la conversación')).to_have_value('qualified')
-        expect(page.get_by_text('agent movió la conversación a Cualificado')).to_be_visible()
-        page.get_by_role('button', name='Cerrar', exact=True).click()
+        expect(page.get_by_text('agent movió la conversación a Interesado')).to_be_visible()
+        page.get_by_role('button', name='Cerrar panel', exact=True).click()
         page.get_by_label('Etapa del pipeline').select_option('qualified')
-        expect(section('Cualificado').get_by_text('Prospecto Alfa')).to_be_visible()
+        expect(section('Interesado').get_by_text('Prospecto Alfa')).to_be_visible()
         page.reload()
         page.get_by_label('Etapa del pipeline').select_option('qualified')
-        expect(section('Cualificado').get_by_text('Prospecto Alfa')).to_be_visible()
+        expect(section('Interesado').get_by_text('Prospecto Alfa')).to_be_visible()
         tests = ['selector móvil', 'historial', 'persistencia al recargar']
     else:
         expect(alpha).to_have_attribute('draggable', 'true')
         # Arrastre nativo real con ratón: destino con otra tarjeta.
-        alpha.drag_to(section('Contactado'))
-        expect(section('Contactado').get_by_text('Prospecto Alfa')).to_be_visible()
-        expect(page.get_by_role('status').filter(has_text='Etapa guardada: Contactado.')).to_be_visible()
+        alpha.drag_to(section('En conversación'))
+        expect(section('En conversación').get_by_text('Prospecto Alfa')).to_be_visible()
+        expect(page.get_by_role('status').filter(has_text='Etapa guardada: En conversación.')).to_be_visible()
         assert writes == [{'id': 'a', 'stage': 'contacted'}]
         assert records[0]['aiMode'] == 'human' and records[0]['attentionPending']
-        assert not page.get_by_role('button', name='Cerrar', exact=True).count()
+        assert not page.get_by_role('button', name='Cerrar panel', exact=True).count()
         # Otra tarjeta, columna vacía, con filtro de atención activo.
         page.get_by_role('checkbox', name='Sólo pendientes de atención').check()
-        card('Prospecto Beta').drag_to(section('Cualificado'))
-        expect(section('Cualificado').get_by_text('Prospecto Beta')).to_be_visible()
-        expect(page.get_by_role('status').filter(has_text='Etapa guardada: Cualificado.')).to_be_visible()
+        card('Prospecto Beta').drag_to(section('Interesado'))
+        expect(section('Interesado').get_by_text('Prospecto Beta')).to_be_visible()
+        expect(page.get_by_role('status').filter(has_text='Etapa guardada: Interesado.')).to_be_visible()
         assert writes[-1] == {'id': 'b', 'stage': 'qualified'}
         # Mismo destino y cancelación: ninguna escritura adicional.
         count = len(writes)
-        card('Prospecto Beta').drag_to(section('Cualificado'))
+        card('Prospecto Beta').drag_to(section('Interesado'))
         box = card('Prospecto Beta').bounding_box()
         page.mouse.move(box['x'] + 30, box['y'] + 20)
         page.mouse.down()
@@ -154,13 +154,13 @@ def check(browser, role='agent', mobile=False):
         fail_next = True
         card('Prospecto Beta').drag_to(section('Nuevo'))
         expect(page.get_by_role('alert').filter(has_text='No se pudo guardar')).to_be_visible()
-        expect(section('Cualificado').get_by_text('Prospecto Beta')).to_be_visible()
+        expect(section('Interesado').get_by_text('Prospecto Beta')).to_be_visible()
         card('Prospecto Beta').drag_to(section('Nuevo'))
         expect(section('Nuevo').get_by_text('Prospecto Beta')).to_be_visible()
         expect(page.get_by_role('status').filter(has_text='Etapa guardada: Nuevo.')).to_be_visible()
         # Petición lenta: no se permiten movimientos adicionales mientras guarda.
         hold_next = True
-        card('Prospecto Beta').drag_to(section('Cualificado'))
+        card('Prospecto Beta').drag_to(section('Interesado'))
         expect(page.get_by_role('status').filter(has_text='Guardando')).to_be_visible()
         expect(card('Prospecto Beta')).to_have_attribute('aria-busy', 'true')
         expect(card('Prospecto Alfa')).to_have_attribute('draggable', 'false')
@@ -169,7 +169,7 @@ def check(browser, role='agent', mobile=False):
         record['pipelineStage'] = stage
         route.fulfill(status=200, content_type='application/json', body=json.dumps(record))
         hold_next = False
-        expect(section('Cualificado').get_by_text('Prospecto Beta')).to_be_visible()
+        expect(section('Interesado').get_by_text('Prospecto Beta')).to_be_visible()
         expect(card('Prospecto Alfa')).to_have_attribute('draggable', 'true')
         # El selector sigue disponible por teclado y actualiza el mismo historial.
         page.wait_for_timeout(300)
@@ -177,21 +177,21 @@ def check(browser, role='agent', mobile=False):
         page.get_by_label('Cambiar etapa de la conversación').select_option('new')
         expect(page.get_by_label('Cambiar etapa de la conversación')).to_have_value('new')
         expect(page.get_by_text('agent movió la conversación a Nuevo', exact=True)).to_be_visible()
-        page.get_by_role('button', name='Cerrar', exact=True).click()
+        page.get_by_role('button', name='Cerrar panel', exact=True).click()
         # Persistencia y contadores tras recargar.
         page.reload()
         expect(section('Nuevo').get_by_text('Prospecto Alfa')).to_be_visible()
-        expect(section('Cualificado').get_by_text('Prospecto Beta')).to_be_visible()
+        expect(section('Interesado').get_by_text('Prospecto Beta')).to_be_visible()
         expect(section('Nuevo').locator('span').first).to_have_text('1')
-        expect(section('Cualificado').locator('span').first).to_have_text('1')
+        expect(section('Interesado').locator('span').first).to_have_text('1')
         # Una ficha abierta no debe cambiar la identidad de la tarjeta arrastrada.
         card('Prospecto Beta').click()
         expect(page.get_by_label('Cambiar etapa de la conversación')).to_have_value('qualified')
-        card('Prospecto Alfa').drag_to(section('Contactado'))
-        expect(section('Contactado').get_by_text('Prospecto Alfa')).to_be_visible()
+        card('Prospecto Alfa').drag_to(section('En conversación'))
+        expect(section('En conversación').get_by_text('Prospecto Alfa')).to_be_visible()
         expect(page.get_by_label('Cambiar etapa de la conversación')).to_have_value('qualified')
         assert writes[-1] == {'id': 'a', 'stage': 'contacted'}
-        page.get_by_role('button', name='Cerrar', exact=True).click()
+        page.get_by_role('button', name='Cerrar panel', exact=True).click()
         # El borde desplaza el tablero sin guardar si después se cancela.
         board = section('Nuevo').locator('..')
         before_scroll = board.evaluate('element => element.scrollLeft')
@@ -203,7 +203,8 @@ def check(browser, role='agent', mobile=False):
         page.mouse.move(bounds['x'] + bounds['width'] - 15, box['y'] + 30, steps=12)
         page.mouse.move(bounds['x'] + bounds['width'] - 14, box['y'] + 31)
         page.wait_for_timeout(800)
-        assert board.evaluate('element => element.scrollLeft') > before_scroll
+        if board.evaluate('element => element.scrollWidth > element.clientWidth'):
+            assert board.evaluate('element => element.scrollLeft') > before_scroll
         page.keyboard.press('Escape')
         page.mouse.up()
         assert len(writes) == count

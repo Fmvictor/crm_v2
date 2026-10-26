@@ -110,6 +110,29 @@ export class WhatsAppStatusService implements OnModuleInit, OnModuleDestroy {
                 latest.status === 'failed' ? latest.errorCode : null,
               ],
             );
+            if (latest.status === 'delivered' || latest.status === 'read') {
+              const moved = await manager.query<
+                { id: string; contactId: string }[]
+              >(
+                `UPDATE conversations SET "pipelineStage"='contacted', "updatedAt"=now()
+                 WHERE id=$1 AND "pipelineStage"='new' AND status='open' AND "optOutAt" IS NULL
+                 RETURNING id, "contactId"`,
+                [item.conversationId],
+              );
+              if (moved.length) {
+                await manager.query(
+                  `UPDATE contacts SET "pipelineStage"='contacted', status='contacted'
+                  WHERE id=$1 AND "pipelineStage"='new'`,
+                  [moved[0].contactId],
+                );
+                await manager.query(
+                  `INSERT INTO pipeline_events
+                  ("conversationId","fromStage","toStage",actor,reason)
+                  VALUES ($1,'new','contacted','system','Primera respuesta entregada por WhatsApp')`,
+                  [item.conversationId],
+                );
+              }
+            }
             if (latest.status === 'failed') {
               await openAttention(
                 manager,
