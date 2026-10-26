@@ -47,6 +47,7 @@ export class ConversationsController {
     @Query('limit') limit?: number,
     @Query('attention') attention?: string,
     @Query('status') status?: ConversationStatus,
+    @Query('followUp') followUp?: string,
   ) {
     return this.conversationsService.findAll({
       stage,
@@ -57,6 +58,7 @@ export class ConversationsController {
       page: Number(page) || 1,
       limit: Number(limit) || 50,
       attention: attention === 'pending',
+      followUp: followUp === 'scheduled',
       status,
     });
   }

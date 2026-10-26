@@ -7,17 +7,15 @@ import type { Conversation, PipelineStage } from '@/types';
 
 export const stages: { id: PipelineStage; label: string; color: string }[] = [
   { id: 'new', label: 'Nuevo', color: 'border-gray-300' },
-  { id: 'contacted', label: 'Contactado', color: 'border-blue-300' },
-  { id: 'qualified', label: 'Cualificado', color: 'border-yellow-300' },
-  { id: 'call_scheduled', label: 'Llamada agendada', color: 'border-orange-300' },
-  { id: 'call_done', label: 'Llamada hecha', color: 'border-orange-400' },
-  { id: 'offer_sent', label: 'Oferta enviada', color: 'border-purple-300' },
-  { id: 'deposit_requested', label: 'Señal solicitada', color: 'border-purple-400' },
-  { id: 'deposit_paid', label: 'Señal pagada', color: 'border-green-300' },
-  { id: 'enrolled', label: 'Matriculado', color: 'border-green-500' },
-  { id: 'nurture', label: 'Nutrir', color: 'border-slate-300' },
-  { id: 'lost', label: 'Perdido', color: 'border-red-300' },
+  { id: 'contacted', label: 'En conversación', color: 'border-blue-300' },
+  { id: 'qualified', label: 'Interesado', color: 'border-yellow-300' },
+  { id: 'enrolled', label: 'Matrícula confirmada', color: 'border-green-500' },
+  { id: 'lost', label: 'Sin continuidad', color: 'border-red-300' },
 ];
+
+function date(value?: string | null) {
+  return value ? new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : 'Sin actividad';
+}
 
 interface PipelineBoardProps {
   conversations: Conversation[];
@@ -105,6 +103,12 @@ export function PipelineBoard({ conversations, selectedId, canEdit, movingId, on
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-gray-900">{conversation.contact?.name || 'Lead sin nombre'}</p>
                   <p className="truncate text-xs text-gray-500">{conversation.contact?.courseInterest || conversation.externalContactKey}</p>
+                  {conversation.aiSummary && <p className="mt-2 line-clamp-3 text-xs text-gray-600">{conversation.aiSummary}</p>}
+                  {conversation.attentionReason && conversation.attentionPending && <p className="mt-2 text-xs text-orange-900">{conversation.attentionReason}</p>}
+                  <p className="mt-2 text-[11px] text-gray-500">Actividad: {date([conversation.lastInboundAt, conversation.lastOutboundAt].filter(Boolean).sort().at(-1) || conversation.updatedAt)}</p>
+                  {conversation.nextFollowUpAt && <p className="text-[11px] text-gray-500">Seguimiento: {date(conversation.nextFollowUpAt)}</p>}
+                  <p className="text-[11px] text-gray-500">{conversation.optOutAt ? 'Baja: no contactar' : conversation.lastInboundAt && Date.now() - new Date(conversation.lastInboundAt).getTime() < 86400000 ? 'Ventana de WhatsApp abierta' : 'Fuera de ventana de WhatsApp'}</p>
+                  {conversation.lastDeliveryStatus && <p className="text-[11px] text-gray-500">Último envío: {({ sent: 'enviado', delivered: 'entregado', read: 'leído', failed: 'fallido' })[conversation.lastDeliveryStatus]}</p>}
                   {conversation.attentionPending && <span className="mt-2 inline-flex rounded-md bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-900">Atención pendiente</span>}
                   <div className="mt-2 flex items-center gap-1 text-[11px] text-gray-400">
                     <span>{conversation.aiMode === 'auto' ? 'IA activa' : conversation.aiMode === 'human' ? 'Agente' : 'Pausada'}</span>

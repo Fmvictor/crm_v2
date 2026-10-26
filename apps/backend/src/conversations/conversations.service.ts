@@ -29,6 +29,7 @@ import {
   KnowledgeDocumentStatus,
 } from '../knowledge/entities/knowledge-document.entity';
 import {
+  PIPELINE_STAGES,
   mapLegacyStatus,
   PipelineStage,
 } from '../pipeline/pipeline-stage.enum';
@@ -243,6 +244,7 @@ export class ConversationsService {
     limit?: number;
     attention?: boolean;
     status?: ConversationStatus;
+    followUp?: boolean;
   }) {
     if (
       options.status &&
@@ -263,6 +265,8 @@ export class ConversationsService {
         },
       );
     if (options.attention) qb.andWhere('conversation.attentionPending = true');
+    if (options.followUp)
+      qb.andWhere('conversation.nextFollowUpAt IS NOT NULL');
     if (options.stage)
       qb.andWhere('conversation.pipelineStage = :stage', {
         stage: options.stage,
@@ -288,8 +292,25 @@ export class ConversationsService {
       .skip((page - 1) * limit)
       .take(limit);
     const [data, total] = await qb.getManyAndCount();
+    const ids = data.map((item) => item.id);
+    const deliveries = ids.length
+      ? await this.messagesRepo.query<
+          { conversationId: string; deliveryStatus: string | null }[]
+        >(
+          `SELECT DISTINCT ON ("conversationId") "conversationId", "deliveryStatus"
+       FROM conversation_messages WHERE "conversationId"=ANY($1::uuid[]) AND direction='outbound'
+       ORDER BY "conversationId", "createdAt" DESC`,
+          [ids],
+        )
+      : [];
+    const deliveryById = new Map(
+      deliveries.map((item) => [item.conversationId, item.deliveryStatus]),
+    );
     return {
-      data,
+      data: data.map((item) => ({
+        ...item,
+        lastDeliveryStatus: deliveryById.get(item.id) ?? null,
+      })),
       total,
       page,
       lastPage: Math.max(1, Math.ceil(total / limit)),
@@ -332,6 +353,8 @@ export class ConversationsService {
     reason: string,
     metadata?: Record<string, unknown>,
   ) {
+    if (!PIPELINE_STAGES.includes(toStage))
+      throw new BadRequestException('Etapa de pipeline no válida');
     return this.withConversationLock(id, async (manager) => {
       const conversation = await manager.findOneOrFail(Conversation, {
         where: { id },
@@ -344,13 +367,7 @@ export class ConversationsService {
           conversation.optOutAt
         )
           return conversation;
-        if (
-          [
-            PipelineStage.CALL_DONE,
-            PipelineStage.DEPOSIT_PAID,
-            PipelineStage.ENROLLED,
-          ].includes(toStage)
-        )
+        if (![PipelineStage.QUALIFIED, PipelineStage.LOST].includes(toStage))
           throw new Error(`La IA no puede mover una conversación a ${toStage}`);
       }
       const contact = await manager.findOneOrFail(Contact, {
@@ -358,6 +375,8 @@ export class ConversationsService {
       });
       const fromStage = conversation.pipelineStage;
       conversation.pipelineStage = toStage;
+      if ([PipelineStage.ENROLLED, PipelineStage.LOST].includes(toStage))
+        conversation.nextFollowUpAt = null;
       contact.pipelineStage = toStage;
       if (toStage === PipelineStage.ENROLLED)
         contact.status = ContactStatus.ENROLLED;
@@ -598,6 +617,9 @@ export class ConversationsService {
       if (
         conversation.status !== ConversationStatus.OPEN ||
         !conversation.optInAt ||
+        [PipelineStage.ENROLLED, PipelineStage.LOST].includes(
+          conversation.pipelineStage,
+        ) ||
         conversation.optOutAt ||
         conversation.aiMode !== ConversationAiMode.AUTO
       )

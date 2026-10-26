@@ -95,17 +95,7 @@ export class OpenAiService {
               language: { type: ['string', 'null'] },
               stage: {
                 type: ['string', 'null'],
-                enum: [
-                  'new',
-                  'contacted',
-                  'qualified',
-                  'call_scheduled',
-                  'offer_sent',
-                  'deposit_requested',
-                  'nurture',
-                  'lost',
-                  null,
-                ],
+                enum: ['new', 'contacted', 'qualified', 'lost', null],
               },
               courseInterest: { type: ['string', 'null'] },
               summary: { type: ['string', 'null'] },

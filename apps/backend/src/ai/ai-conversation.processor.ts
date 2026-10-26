@@ -26,13 +26,7 @@ import {
 } from './conversation-language';
 
 const AI_STAGES = new Set<string>([
-  PipelineStage.NEW,
-  PipelineStage.CONTACTED,
   PipelineStage.QUALIFIED,
-  PipelineStage.CALL_SCHEDULED,
-  PipelineStage.OFFER_SENT,
-  PipelineStage.DEPOSIT_REQUESTED,
-  PipelineStage.NURTURE,
   PipelineStage.LOST,
 ]);
 
@@ -69,6 +63,12 @@ export class AiConversationProcessor {
     );
     // Una activación expresa inicia otra etapa de IA. Los avisos y respuestas
     // humanos anteriores se conservan en CRM, pero no describen el control actual.
+    Object.assign(conversation, {
+      recentAlertMessages: recentMessages.slice(-3).map((message) => ({
+        direction: message.direction,
+        body: message.body,
+      })),
+    });
     const activatedAt = conversation.aiActivatedAt;
     const messages = activatedAt
       ? recentMessages.filter((message) => message.createdAt > activatedAt)
@@ -197,22 +197,30 @@ export class AiConversationProcessor {
       summary: decision.summary ?? undefined,
     });
 
-    if (decision.stage && AI_STAGES.has(decision.stage)) {
+    if (decision.summary?.trim()) conversation.aiSummary = decision.summary;
+    if (decision.courseInterest?.trim() && conversation.contact)
+      conversation.contact.courseInterest = decision.courseInterest;
+
+    const explicitRejection =
+      /\b(no (?:me interesa|quiero (?:continuar|seguir|el curso))|not interested|ne suis pas intéress|não (?:tenho interesse|quero continuar))\b/i.test(
+        lastInbound.body,
+      );
+    const canClassify = ![PipelineStage.ENROLLED, PipelineStage.LOST].includes(
+      conversation.pipelineStage,
+    );
+    if (
+      canClassify &&
+      decision.stage &&
+      ((decision.stage === 'qualified' &&
+        !!(decision.courseInterest || conversation.contact?.courseInterest)) ||
+        (decision.stage === 'lost' && explicitRejection)) &&
+      AI_STAGES.has(decision.stage)
+    ) {
       await this.conversationsService.moveStage(
         conversationId,
         decision.stage as PipelineStage,
         PipelineEventActor.AI,
         decision.summary ?? 'Clasificación automática por IA',
-      );
-    } else if (
-      conversation.pipelineStage === PipelineStage.NEW &&
-      decision.reply
-    ) {
-      await this.conversationsService.moveStage(
-        conversationId,
-        PipelineStage.CONTACTED,
-        PipelineEventActor.AI,
-        'Primera respuesta automática',
       );
     }
 
@@ -280,6 +288,8 @@ export class AiConversationProcessor {
     conversation: {
       externalContactKey: string;
       contact?: { name?: string | null };
+      aiSummary?: string | null;
+      recentAlertMessages?: { direction: string; body: string }[];
     },
     inboundMessageId: string,
     reason: string,
@@ -319,6 +329,8 @@ export class AiConversationProcessor {
     conversation: {
       contact?: { name?: string | null };
       externalContactKey: string;
+      aiSummary?: string | null;
+      recentAlertMessages?: { direction: string; body: string }[];
     },
     reason: string,
   ): Promise<void> {
@@ -329,13 +341,43 @@ export class AiConversationProcessor {
         ?.replace(/[\r\n]+/g, ' ')
         .trim()
         .slice(0, 100) || 'Lead sin nombre';
-    const lastFourDigits =
-      conversation.externalContactKey.replace(/\D/g, '').slice(-4) || '----';
+    const digits = conversation.externalContactKey.replace(/\D/g, '');
+    const leadPhone = /^[1-9]\d{7,14}$/.test(digits)
+      ? `+${digits}`
+      : 'No disponible; revisar CRM';
+    const clean = (value: string, max: number) =>
+      value
+        .replace(/[\r\n\t]+/g, ' ')
+        .trim()
+        .slice(0, max);
+    const recent = (conversation.recentAlertMessages ?? [])
+      .map(
+        (message) =>
+          `${message.direction === 'inbound' ? 'Lead' : 'Equipo/bot'}: ${clean(message.body, 130)}`,
+      )
+      .join(' | ');
+    const summary = clean(conversation.aiSummary ?? '', 300);
+    const context = clean(
+      [
+        summary
+          ? `Resumen: ${summary}`
+          : recent
+            ? 'Resumen de los últimos intercambios:'
+            : 'Resumen: consulta pendiente de revisión.',
+        recent ? `${summary ? 'Últimos mensajes: ' : ''}${recent}` : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      780,
+    );
     const safeReason = reason
       .replace(/[\r\n]+/g, ' ')
       .trim()
       .slice(0, 160);
     const alertTemplate = process.env.HUMAN_ATTENTION_WHATSAPP_TEMPLATE?.trim();
+    const nextAction = /baja|detengan los mensajes/i.test(reason)
+      ? 'Baja solicitada: no contactar.'
+      : 'Puedes copiar el teléfono para atenderle desde tu WhatsApp.';
 
     try {
       if (alertTemplate) {
@@ -344,7 +386,11 @@ export class AiConversationProcessor {
             {
               to: phone.slice(1),
               templateName: alertTemplate,
-              params: [leadName, lastFourDigits, safeReason],
+              params: [
+                leadName,
+                leadPhone,
+                clean(`${safeReason}. ${context}`, 980),
+              ],
             },
             ConversationMessageActor.SYSTEM,
           );
@@ -356,7 +402,7 @@ export class AiConversationProcessor {
       }
       await this.whatsAppService.sendText(
         phone.slice(1),
-        `⚠️ Un lead requiere atención humana.\nLead: ${leadName} (…${lastFourDigits})\nMotivo: ${safeReason}\nAbre el Pipeline de WhatsApp en el CRM.`,
+        `⚠️ Un lead requiere atención humana.\nLead: ${leadName}\nTeléfono: ${leadPhone}\nMotivo: ${safeReason}\n${context}\n${nextAction}`,
         ConversationMessageActor.SYSTEM,
       );
     } catch {

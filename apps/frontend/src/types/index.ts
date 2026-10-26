@@ -74,6 +74,9 @@ export interface Conversation {
   contact: Contact;
   messages?: ConversationMessage[];
   pipelineEvents?: PipelineEvent[];
+  lastInboundAt?: string | null;
+  lastOutboundAt?: string | null;
+  lastDeliveryStatus?: 'sent' | 'delivered' | 'read' | 'failed' | null;
   updatedAt: string;
 }
 

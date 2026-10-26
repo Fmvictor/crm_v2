@@ -43,7 +43,9 @@ describe('Confirmaciones y atenciones persistentes en SQL aislado', () => {
   beforeAll(async () => {
     pg = new PGlite();
     await pg.exec(`CREATE TABLE users(id uuid PRIMARY KEY);
-      CREATE TABLE conversations(id uuid PRIMARY KEY,"lifecycleVersion" integer NOT NULL DEFAULT 0,"externalContactKey" varchar(80),"aiMode" varchar(16) DEFAULT 'auto',"nextFollowUpAt" timestamptz,"handoffReason" varchar(255),"updatedAt" timestamptz DEFAULT now());
+      CREATE TABLE contacts(id uuid PRIMARY KEY, "pipelineStage" varchar(30) DEFAULT 'new', status varchar(30));
+      CREATE TABLE pipeline_events(id uuid DEFAULT gen_random_uuid(), "conversationId" uuid, "fromStage" varchar(30), "toStage" varchar(30), actor varchar(30), reason text);
+      CREATE TABLE conversations("contactId" uuid, "pipelineStage" varchar(30) DEFAULT 'new', status varchar(16) DEFAULT 'open', "optOutAt" timestamptz, id uuid PRIMARY KEY,"lifecycleVersion" integer NOT NULL DEFAULT 0,"externalContactKey" varchar(80),"aiMode" varchar(16) DEFAULT 'auto',"nextFollowUpAt" timestamptz,"handoffReason" varchar(255),"updatedAt" timestamptz DEFAULT now());
       CREATE TABLE conversation_messages(id uuid PRIMARY KEY,"externalMessageId" varchar(160),direction varchar(16),"conversationId" uuid REFERENCES conversations(id));`);
     const query = async (sql: string, params?: unknown[]) =>
       (await pg.query(sql, params)).rows;
@@ -69,7 +71,7 @@ describe('Confirmaciones y atenciones persistentes en SQL aislado', () => {
   });
   beforeEach(async () => {
     await pg.exec(
-      'DELETE FROM whatsapp_status_events; DELETE FROM conversation_attention_events; DELETE FROM conversation_messages; DELETE FROM conversations;',
+      'DELETE FROM pipeline_events; DELETE FROM whatsapp_status_events; DELETE FROM conversation_attention_events; DELETE FROM conversation_messages; DELETE FROM conversations;',
     );
     await pg.query(
       `INSERT INTO conversations(id,"externalContactKey","nextFollowUpAt") VALUES ($1,$2,now())`,
@@ -90,6 +92,32 @@ describe('Confirmaciones y atenciones persistentes en SQL aislado', () => {
     await service.reconcilePending();
     expect(await state()).toBe('delivered');
   });
+  it('avanza sólo al entregar y conserva una única transición ante callbacks repetidos', async () => {
+    await service.record([event('sent')]);
+    await service.reconcilePending();
+    const stage = async () =>
+      (
+        await pg.query<{ pipelineStage: string }>(
+          `SELECT "pipelineStage" FROM conversations WHERE id=$1`,
+          [conversation],
+        )
+      ).rows[0].pipelineStage;
+    expect(await stage()).toBe('new');
+    await service.record([event('delivered')]);
+    await service.reconcilePending();
+    expect(await stage()).toBe('contacted');
+    await service.record([event('read')]);
+    await service.reconcilePending();
+    expect(
+      (
+        await pg.query(
+          `SELECT * FROM pipeline_events WHERE "conversationId"=$1`,
+          [conversation],
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
+
   it('no retrocede de leído con eventos repetidos o desordenados', async () => {
     await service.record([event('read')]);
     await service.reconcilePending();

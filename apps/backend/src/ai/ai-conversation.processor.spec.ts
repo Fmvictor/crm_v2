@@ -89,6 +89,52 @@ describe('AiConversationProcessor', () => {
     },
   );
 
+  it.each([
+    ['new', 'contacted', 'Hola', false],
+    ['contacted', 'call_scheduled', 'Me interesa CMB1', false],
+    ['qualified', 'new', 'Otra duda', false],
+    ['contacted', 'lost', 'Lo pienso y te digo', false],
+    ['contacted', 'lost', 'No me interesa', true],
+    ['contacted', 'qualified', 'Me interesa CMB1', true],
+    ['enrolled', 'qualified', 'Otra duda', false],
+  ])(
+    'clasifica %s a %s sólo dentro del alcance del bot (%s)',
+    async (stage, nextStage, body, expected) => {
+      const conversation = {
+        aiMode: 'auto',
+        status: 'open',
+        pipelineStage: stage,
+        externalContactKey: '34600000009',
+        contact: { courseInterest: 'CMB1' },
+      };
+      const conversations = {
+        findOne: jest.fn().mockResolvedValue(conversation),
+        getRecentMessages: jest
+          .fn()
+          .mockResolvedValue([{ id: 'last', direction: 'inbound', body }]),
+        canAiReply: jest.fn().mockResolvedValue(true),
+        updateLead: jest.fn(),
+        moveStage: jest.fn(),
+      };
+      await createProcessor(
+        conversations,
+        {
+          decide: jest.fn().mockResolvedValue({
+            reply: 'Respuesta de prueba',
+            stage: nextStage,
+            informationVerified: true,
+            handoff: false,
+            optIn: false,
+          }),
+        },
+        { getContext: jest.fn().mockResolvedValue('Fuente autorizada') },
+        { isPaused: jest.fn().mockResolvedValue(false) },
+        { sendText: jest.fn() },
+      ).process('conversation', 'last');
+      expect(conversations.moveStage).toHaveBeenCalledTimes(expected ? 1 : 0);
+    },
+  );
+
   it('pasa el curso guardado y los mensajes anteriores al recuperador', async () => {
     const conversation = {
       aiMode: 'auto',
@@ -403,7 +449,7 @@ describe('AiConversationProcessor', () => {
     expect(whatsAppService.sendText).toHaveBeenNthCalledWith(
       2,
       '34600000000',
-      '⚠️ Un lead requiere atención humana.\nLead: Lead de prueba (…0000)\nMotivo: Solicita una persona\nAbre el Pipeline de WhatsApp en el CRM.',
+      expect.stringContaining('Teléfono: +34600000000'),
       'system',
     );
     expect(
@@ -455,9 +501,48 @@ describe('AiConversationProcessor', () => {
     );
     expect(whatsAppService.sendText).toHaveBeenCalledWith(
       '34600000000',
-      '⚠️ Un lead requiere atención humana.\nLead: Ana Cliente (…0001)\nMotivo: El lead ha pedido que se detengan los mensajes.\nAbre el Pipeline de WhatsApp en el CRM.',
+      expect.stringContaining('Teléfono: +34600000001'),
       'system',
     );
+  });
+
+  it('incluye resumen y últimos mensajes sin llamar al modelo ni enviar al lead', async () => {
+    const whatsapp = { sendText: jest.fn().mockResolvedValue(undefined) };
+    const model = { decide: jest.fn() };
+    const processor = createProcessor({}, model, {}, {}, whatsapp);
+    await alertFor(processor).notifyHumanAttention(
+      {
+        externalContactKey: '34600000009',
+        contact: { name: 'Lead resumen' },
+        aiSummary: 'Interesado en CMB1. Consulta resuelta sobre horarios.',
+        recentAlertMessages: [
+          {
+            direction: 'inbound',
+            body: 'Quiero hablar con Víctor para continuar',
+          },
+        ],
+      },
+      'Solicita una persona',
+    );
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+    expect(whatsapp.sendText).toHaveBeenCalledWith(
+      '34600000000',
+      expect.stringContaining(
+        'Resumen: Interesado en CMB1. Consulta resuelta sobre horarios.',
+      ),
+      'system',
+    );
+    expect(whatsapp.sendText).toHaveBeenCalledWith(
+      '34600000000',
+      expect.stringContaining('Teléfono: +34600000009'),
+      'system',
+    );
+    expect(whatsapp.sendText).toHaveBeenCalledWith(
+      '34600000000',
+      expect.stringContaining('Lead: Quiero hablar con Víctor para continuar'),
+      'system',
+    );
+    expect(model.decide).not.toHaveBeenCalled();
   });
 
   it('does not send an alert without a valid recipient configuration', async () => {
@@ -618,7 +703,11 @@ describe('AiConversationProcessor', () => {
       {
         to: '34600000000',
         templateName: 'alerta_atencion_humana',
-        params: ['Lead plantilla', '0004', 'Solicita una persona'],
+        params: [
+          'Lead plantilla',
+          '+34600000004',
+          expect.stringContaining('Solicita una persona. Resumen:'),
+        ],
       },
       'system',
     );
@@ -640,7 +729,7 @@ describe('AiConversationProcessor', () => {
 
     expect(whatsAppService.sendText).toHaveBeenCalledWith(
       '34600000000',
-      '⚠️ Un lead requiere atención humana.\nLead: Lead respaldo (…0005)\nMotivo: Solicita una persona\nAbre el Pipeline de WhatsApp en el CRM.',
+      expect.stringContaining('Teléfono: +34600000005'),
       'system',
     );
   });

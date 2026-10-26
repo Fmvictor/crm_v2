@@ -90,13 +90,14 @@ export default function PipelinePage() {
   const user = useAuthStore((state) => state.user);
   const canEdit = user?.role === 'admin' || user?.role === 'agent';
   const [onlyAttention, setOnlyAttention] = useState(false);
+  const [workFilter, setWorkFilter] = useState('all');
   const [conversationStatus, setConversationStatus] = useState<'open' | 'closed'>('open');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const stageChangePending = useRef(false);
   const [text, setText] = useState('');
   const { data, isLoading } = useQuery({
-    queryKey: ['conversations', onlyAttention, conversationStatus],
-    queryFn: () => api.get<PaginatedResult<Conversation>>(`/conversations?limit=100&status=${conversationStatus}${onlyAttention ? '&attention=pending' : ''}`).then((r) => r.data),
+    queryKey: ['conversations', onlyAttention, conversationStatus, workFilter],
+    queryFn: () => api.get<PaginatedResult<Conversation>>(`/conversations?limit=100&status=${conversationStatus}${onlyAttention ? '&attention=pending' : ''}${workFilter === 'followUp' ? '&followUp=scheduled' : workFilter === 'all' ? '' : `&aiMode=${workFilter}`}`).then((r) => r.data),
     refetchInterval: 15_000,
   });
   const { data: selected } = useQuery({
@@ -169,6 +170,11 @@ export default function PipelinePage() {
       <label className="flex items-center gap-2 text-sm text-gray-700">Conversaciones
         <select aria-label="Estado de conversaciones" value={conversationStatus} onChange={event => setConversationStatus(event.target.value as 'open' | 'closed')} className="rounded-lg border px-3 py-2">
           <option value="open">Abiertas y pendientes</option><option value="closed">Cerradas</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-2 text-sm text-gray-700">Atención
+        <select aria-label="Filtrar atención" value={workFilter} onChange={event => setWorkFilter(event.target.value)} className="rounded-lg border px-3 py-2">
+          <option value="all">Todas</option><option value="auto">Bot</option><option value="human">Persona</option><option value="paused">IA pausada</option><option value="followUp">Con seguimiento</option>
         </select>
       </label>
       <label className="flex w-fit items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={onlyAttention} onChange={(event) => setOnlyAttention(event.target.checked)} className="h-4 w-4" />Sólo pendientes de atención</label>
