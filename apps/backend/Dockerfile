@@ -7,7 +7,7 @@ RUN npm ci
 
 COPY . .
 RUN npm run build
-RUN npm test -- --runInBand
+RUN NODE_OPTIONS=--max-old-space-size=512 npm test -- --maxWorkers=1 --workerIdleMemoryLimit=200MB
 
 # ---- Production stage ----
 FROM node:24.22.0-alpine AS production

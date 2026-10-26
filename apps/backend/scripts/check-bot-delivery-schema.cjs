@@ -27,7 +27,8 @@ async function check() {
       AND to_regclass('public.bot_config_usage_refs') IS NOT NULL
       AND EXISTS (SELECT 1 FROM migrations WHERE name='ConversationLifecycle1760000006000')
       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='conversations' AND column_name='lifecycleVersion')
-      AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='conversations' AND column_name='aiActivatedAt') AS ready`);
+      AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='conversations' AND column_name='aiActivatedAt')
+      AND EXISTS (SELECT 1 FROM migrations WHERE name='BotPipeline1760000007000') AS ready`);
     if (rows[0]?.ready !== true) throw new Error('Schema pending');
     console.log('Migración de entrega persistente verificada.');
   } finally {
